@@ -268,7 +268,6 @@ MCP 工具名：
 
 ```text
 generate_image2
-edit_image2
 ```
 
 入参示例：
@@ -319,7 +318,7 @@ C:\Users\you\Desktop\images
 }
 ```
 
-### edit_image2
+### 图生图
 
 调用接口：
 
@@ -335,9 +334,23 @@ Content-Type: multipart/form-data
   "prompt": "Add a cat sitting on the desk",
   "image_paths": ["/Users/you/Desktop/images/desk.png"],
   "size": "1024x1024",
+  "quality": "auto",
   "mask_path": "/Users/you/Desktop/images/mask.png",
   "output_dir": "/Users/you/Desktop/images",
   "output_name": "desk-with-cat.png"
+}
+```
+
+多图输入时，数组顺序会原样保留：
+
+```json
+{
+  "prompt": "以第一张图为主体，以第二张图为服装和配色参考",
+  "image_paths": [
+    "/Users/you/Desktop/images/subject.png",
+    "/Users/you/Desktop/images/style.jpg"
+  ],
+  "output_name": "combined.png"
 }
 ```
 
@@ -347,6 +360,7 @@ Content-Type: multipart/form-data
 prompt       必填，编辑提示词
 image_paths  必填，源图片绝对路径列表，至少一个
 size         可选，默认 1024x1024
+quality      可选，默认 auto
 mask_path    可选，蒙版图片绝对路径
 output_dir   可选，图片保存目录；如果传入，必须是绝对路径
 output_name  可选，图片文件名；不传则自动生成 image2-时间戳.png
@@ -355,7 +369,8 @@ output_name  可选，图片文件名；不传则自动生成 image2-时间戳.p
 `image_paths` 规则：
 
 - 至少传一个路径
-- 每个路径必须是绝对路径且文件存在
+- 每个路径必须是绝对路径、文件存在且为普通文件
+- 多图会按数组顺序上传
 
 `mask_path` 规则：
 

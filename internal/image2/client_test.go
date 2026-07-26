@@ -22,7 +22,6 @@ func TestBuildGenerationsEndpoint(t *testing.T) {
 		"https://api.schyler.top/images/edits":          "https://api.schyler.top/images/generations",
 		"https://api.schyler.top/v1/images/edits":       "https://api.schyler.top/v1/images/generations",
 		"https://api.schyler.top/v1/images/generations": "https://api.schyler.top/v1/images/generations",
-		"https://api.schyler.top/v1/images/edits":       "https://api.schyler.top/v1/images/generations",
 	}
 	for in, want := range tests {
 		if got := BuildGenerationsEndpoint(in); got != want {
@@ -37,6 +36,8 @@ func TestBuildEditsEndpoint(t *testing.T) {
 		"https://api.schyler.top/":                      "https://api.schyler.top/v1/images/edits",
 		"https://api.schyler.top/v1":                    "https://api.schyler.top/v1/images/edits",
 		"https://api.schyler.top/v1/":                   "https://api.schyler.top/v1/images/edits",
+		"https://api.schyler.top/images/generations":    "https://api.schyler.top/images/edits",
+		"https://api.schyler.top/images/edits":          "https://api.schyler.top/images/edits",
 		"https://api.schyler.top/v1/images/edits":       "https://api.schyler.top/v1/images/edits",
 		"https://api.schyler.top/v1/images/generations": "https://api.schyler.top/v1/images/edits",
 	}
@@ -153,7 +154,9 @@ func TestGenerateRejectsRelativeOutputDir(t *testing.T) {
 }
 
 func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
-	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	firstImage := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	secondImage := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	maskImage := append([]byte(nil), firstImage...)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/images/edits" {
 			t.Fatalf("path = %q", r.URL.Path)
@@ -164,39 +167,85 @@ func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
 		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "multipart/form-data") {
 			t.Fatalf("Content-Type = %q, want multipart/form-data", ct)
 		}
-		if err := r.ParseMultipartForm(8 << 20); err != nil {
+		reader, err := r.MultipartReader()
+		if err != nil {
 			t.Fatal(err)
 		}
-		if r.FormValue("model") != DefaultModel {
-			t.Fatalf("model = %q, want %q", r.FormValue("model"), DefaultModel)
+		fields := map[string]string{}
+		type uploadedFile struct {
+			field       string
+			name        string
+			contentType string
+			data        string
 		}
-		if r.FormValue("prompt") != "edit hello" {
-			t.Fatalf("prompt = %q", r.FormValue("prompt"))
+		var files []uploadedFile
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := io.ReadAll(part)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if part.FileName() != "" {
+				files = append(files, uploadedFile{
+					field:       part.FormName(),
+					name:        part.FileName(),
+					contentType: part.Header.Get("Content-Type"),
+					data:        string(data),
+				})
+				continue
+			}
+			fields[part.FormName()] = string(data)
 		}
-		if r.FormValue("size") != DefaultSize {
-			t.Fatalf("size = %q", r.FormValue("size"))
+		wantFields := map[string]string{
+			"model":           DefaultModel,
+			"prompt":          "edit hello",
+			"size":            DefaultSize,
+			"quality":         "high",
+			"n":               "1",
+			"response_format": "b64_json",
 		}
-		if r.FormValue("n") != "1" {
-			t.Fatalf("n = %q", r.FormValue("n"))
+		for name, want := range wantFields {
+			if got := fields[name]; got != want {
+				t.Fatalf("field %q = %q, want %q", name, got, want)
+			}
 		}
-		if r.FormValue("response_format") != "b64_json" {
-			t.Fatalf("response_format = %q", r.FormValue("response_format"))
+		if len(files) != 3 {
+			t.Fatalf("file parts = %d, want 3", len(files))
 		}
-		f, _, err := r.FormFile("image[]")
-		if err != nil {
-			t.Fatalf("FormFile image[]: %v", err)
+		if files[0].field != "image[]" || files[0].name != "first.png" || files[0].contentType != "image/png" || files[0].data != string(firstImage) {
+			t.Fatalf("first image part = %#v", files[0])
 		}
-		f.Close()
+		if files[1].field != "image[]" || files[1].name != "second.jpg" || files[1].contentType != "image/jpeg" || files[1].data != string(secondImage) {
+			t.Fatalf("second image part = %#v", files[1])
+		}
+		if files[2].field != "mask" || files[2].name != "mask.png" || files[2].contentType != "image/png" || files[2].data != string(maskImage) {
+			t.Fatalf("mask part = %#v", files[2])
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(png)}},
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(firstImage)}},
 		})
 	}))
 	defer server.Close()
 
 	imgDir := t.TempDir()
-	imgPath := filepath.Join(imgDir, "input.png")
-	if err := os.WriteFile(imgPath, png, 0o644); err != nil {
-		t.Fatal(err)
+	paths := []struct {
+		name string
+		data []byte
+	}{
+		{name: "first.png", data: firstImage},
+		{name: "second.jpg", data: secondImage},
+		{name: "mask.png", data: maskImage},
+	}
+	for _, file := range paths {
+		if err := os.WriteFile(filepath.Join(imgDir, file.name), file.data, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	outDir := t.TempDir()
@@ -206,7 +255,9 @@ func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
 	}
 	result, err := client.Edit(context.Background(), EditRequest{
 		Prompt:     "edit hello",
-		ImagePaths: []string{imgPath},
+		ImagePaths: []string{filepath.Join(imgDir, "first.png"), filepath.Join(imgDir, "second.jpg")},
+		MaskPath:   filepath.Join(imgDir, "mask.png"),
+		Quality:    "high",
 		OutputName: "edited.png",
 	})
 	if err != nil {
@@ -222,8 +273,8 @@ func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(png) {
-		t.Fatalf("written bytes = %v, want %v", got, png)
+	if string(got) != string(firstImage) {
+		t.Fatalf("written bytes = %v, want %v", got, firstImage)
 	}
 }
 
@@ -281,6 +332,26 @@ func TestEditRejectsMissingImageFile(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "image file not found") {
 		t.Fatalf("err = %v, want image file not found", err)
+	}
+}
+
+func TestEditRejectsDirectoryImagePath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("HTTP server should not be called for directory image path")
+	}))
+	defer server.Close()
+
+	directoryPath := t.TempDir()
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Edit(context.Background(), EditRequest{
+		Prompt:     "hello",
+		ImagePaths: []string{directoryPath},
+	})
+	if err == nil || err.Error() != "image path must be a regular file: "+directoryPath {
+		t.Fatalf("err = %v, want regular file error", err)
 	}
 }
 
