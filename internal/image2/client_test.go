@@ -461,3 +461,35 @@ func TestRealEditImage2Smoke(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRealEditImage2MultiSmoke(t *testing.T) {
+	if os.Getenv("RUN_IMAGE2_EDIT_MULTI_SMOKE") != "1" {
+		t.Skip("set RUN_IMAGE2_EDIT_MULTI_SMOKE=1 and IMAGE2_EDIT_INPUTS to call the real multi-image edit API")
+	}
+	imagePaths := filepath.SplitList(os.Getenv("IMAGE2_EDIT_INPUTS"))
+	if len(imagePaths) < 2 {
+		t.Fatal("IMAGE2_EDIT_INPUTS must contain at least two paths separated by the OS path-list separator")
+	}
+	outputDir, err := filepath.Abs(filepath.Join("..", "..", "output", "imagegen"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewFromEnv(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Edit(context.Background(), EditRequest{
+		Prompt:     "Use the first image as the subject and composition reference, and the second image as the lighting, color, and styling reference",
+		ImagePaths: imagePaths,
+		OutputName: "mcp-edit-multi-smoke-test.png",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FilePath == "" {
+		t.Fatal("expected output file path")
+	}
+	if _, err := os.Stat(result.FilePath); err != nil {
+		t.Fatal(err)
+	}
+}

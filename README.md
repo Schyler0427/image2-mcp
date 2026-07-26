@@ -260,6 +260,20 @@ go test ./internal/image2 -run TestRealEditImage2Smoke -count=1 -v
 output/imagegen/mcp-edit-smoke-test.png
 ```
 
+多图真实测试使用系统路径分隔符连接两张或更多图片。macOS / Linux 示例：
+
+```bash
+RUN_IMAGE2_EDIT_MULTI_SMOKE=1 \
+IMAGE2_EDIT_INPUTS="/Users/you/Desktop/subject.png:/Users/you/Desktop/style.png" \
+go test ./internal/image2 -run TestRealEditImage2MultiSmoke -count=1 -v
+```
+
+该测试会生成：
+
+```text
+output/imagegen/mcp-edit-multi-smoke-test.png
+```
+
 ## Codex 里怎么调用
 
 ### 文生图
