@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,15 +23,17 @@ const (
 	DefaultBaseURL = "https://api.schyler.top"
 	DefaultModel   = "gpt-image-2"
 	DefaultSize    = "1024x1024"
+	DefaultQuality = "auto"
 )
 
 var safeNameRE = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
 type Client struct {
-	apiKey     string
-	endpoint   string
-	outputDir  string
-	httpClient *http.Client
+	apiKey       string
+	endpoint     string
+	editEndpoint string
+	outputDir    string
+	httpClient   *http.Client
 }
 
 type GenerateRequest struct {
@@ -36,6 +41,15 @@ type GenerateRequest struct {
 	Size       string `json:"size,omitempty"`
 	OutputDir  string `json:"output_dir,omitempty"`
 	OutputName string `json:"output_name,omitempty"`
+}
+
+type EditRequest struct {
+	Prompt     string   `json:"prompt"`
+	ImagePaths []string `json:"image_paths"`
+	Size       string   `json:"size,omitempty"`
+	Quality    string   `json:"quality,omitempty"`
+	OutputDir  string   `json:"output_dir,omitempty"`
+	OutputName string   `json:"output_name,omitempty"`
 }
 
 type GenerateResult struct {
@@ -54,9 +68,10 @@ func NewFromEnv(outputDir string) (*Client, error) {
 		baseURL = DefaultBaseURL
 	}
 	return &Client{
-		apiKey:    apiKey,
-		endpoint:  BuildGenerationsEndpoint(baseURL),
-		outputDir: outputDir,
+		apiKey:       apiKey,
+		endpoint:     BuildGenerationsEndpoint(baseURL),
+		editEndpoint: BuildEditsEndpoint(baseURL),
+		outputDir:    outputDir,
 		httpClient: &http.Client{
 			Timeout: 180 * time.Second,
 		},
@@ -74,25 +89,143 @@ func New(apiKey, baseURL, outputDir string, httpClient *http.Client) (*Client, e
 		httpClient = &http.Client{Timeout: 180 * time.Second}
 	}
 	return &Client{
-		apiKey:     apiKey,
-		endpoint:   BuildGenerationsEndpoint(baseURL),
-		outputDir:  outputDir,
-		httpClient: httpClient,
+		apiKey:       apiKey,
+		endpoint:     BuildGenerationsEndpoint(baseURL),
+		editEndpoint: BuildEditsEndpoint(baseURL),
+		outputDir:    outputDir,
+		httpClient:   httpClient,
 	}, nil
 }
 
 func BuildGenerationsEndpoint(baseURL string) string {
+	return buildImagesEndpoint(baseURL, "generations")
+}
+
+func BuildEditsEndpoint(baseURL string) string {
+	return buildImagesEndpoint(baseURL, "edits")
+}
+
+func buildImagesEndpoint(baseURL, operation string) string {
 	u := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if strings.HasSuffix(u, "/v1/images/generations") {
-		return u
-	}
-	if strings.HasSuffix(u, "/images/generations") {
-		return u
+	for _, existing := range []string{"generations", "edits"} {
+		suffix := "/images/" + existing
+		if strings.HasSuffix(u, suffix) {
+			return strings.TrimSuffix(u, suffix) + "/images/" + operation
+		}
 	}
 	if strings.HasSuffix(u, "/v1") {
-		return u + "/images/generations"
+		return u + "/images/" + operation
 	}
-	return u + "/v1/images/generations"
+	return u + "/v1/images/" + operation
+}
+
+func (c *Client) Edit(ctx context.Context, input EditRequest) (GenerateResult, error) {
+	prompt := strings.TrimSpace(input.Prompt)
+	if prompt == "" {
+		return GenerateResult{}, errors.New("prompt is required")
+	}
+	if len(input.ImagePaths) == 0 {
+		return GenerateResult{}, errors.New("image_paths must contain at least one image")
+	}
+	size := strings.TrimSpace(input.Size)
+	if size == "" {
+		size = DefaultSize
+	}
+	quality := strings.TrimSpace(input.Quality)
+	if quality == "" {
+		quality = DefaultQuality
+	}
+	outputDir := strings.TrimSpace(input.OutputDir)
+	if outputDir == "" {
+		outputDir = c.outputDir
+	} else if !filepath.IsAbs(outputDir) {
+		return GenerateResult{}, errors.New("output_dir must be an absolute path")
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, value := range map[string]string{
+		"model":   DefaultModel,
+		"prompt":  prompt,
+		"size":    size,
+		"quality": quality,
+	} {
+		if err := writer.WriteField(name, value); err != nil {
+			return GenerateResult{}, fmt.Errorf("write multipart field %s: %w", name, err)
+		}
+	}
+	for _, imagePath := range input.ImagePaths {
+		if !filepath.IsAbs(imagePath) {
+			return GenerateResult{}, fmt.Errorf("image path must be absolute: %s", imagePath)
+		}
+		info, err := os.Stat(imagePath)
+		if err != nil {
+			return GenerateResult{}, fmt.Errorf("inspect image path %s: %w", imagePath, err)
+		}
+		if !info.Mode().IsRegular() {
+			return GenerateResult{}, fmt.Errorf("image path must be a regular file: %s", imagePath)
+		}
+
+		file, err := os.Open(imagePath)
+		if err != nil {
+			return GenerateResult{}, fmt.Errorf("open image path %s: %w", imagePath, err)
+		}
+		header := make([]byte, 512)
+		n, readErr := file.Read(header)
+		if readErr != nil && readErr != io.EOF {
+			file.Close()
+			return GenerateResult{}, fmt.Errorf("read image path %s: %w", imagePath, readErr)
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			file.Close()
+			return GenerateResult{}, fmt.Errorf("rewind image path %s: %w", imagePath, err)
+		}
+		contentType := http.DetectContentType(header[:n])
+		disposition := mime.FormatMediaType("form-data", map[string]string{
+			"name":     "image",
+			"filename": filepath.Base(imagePath),
+		})
+		part, err := writer.CreatePart(textproto.MIMEHeader{
+			"Content-Disposition": {disposition},
+			"Content-Type":        {contentType},
+		})
+		if err != nil {
+			file.Close()
+			return GenerateResult{}, fmt.Errorf("create multipart image part for %s: %w", imagePath, err)
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			file.Close()
+			return GenerateResult{}, fmt.Errorf("write multipart image part for %s: %w", imagePath, err)
+		}
+		if err := file.Close(); err != nil {
+			return GenerateResult{}, fmt.Errorf("close image path %s: %w", imagePath, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return GenerateResult{}, fmt.Errorf("finalize multipart image edit: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.editEndpoint, &body)
+	if err != nil {
+		return GenerateResult{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return GenerateResult{}, fmt.Errorf("request image edit: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return GenerateResult{}, fmt.Errorf("read image response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return GenerateResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
+	}
+	return writeImageResponse(respBody, outputDir, input.OutputName, size)
 }
 
 func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateResult, error) {
@@ -143,6 +276,10 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 		return GenerateResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
 	}
 
+	return writeImageResponse(respBody, outputDir, input.OutputName, size)
+}
+
+func writeImageResponse(respBody []byte, outputDir, outputName, size string) (GenerateResult, error) {
 	var parsed struct {
 		Data []struct {
 			B64JSON string `json:"b64_json"`
@@ -164,7 +301,7 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 		return GenerateResult{}, fmt.Errorf("create output directory: %w", err)
 	}
 
-	fileName := cleanOutputName(input.OutputName)
+	fileName := cleanOutputName(outputName)
 	if fileName == "" {
 		fileName = "image2-" + time.Now().Format("20060102-150405") + ".png"
 	}
