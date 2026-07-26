@@ -2,11 +2,10 @@
 
 Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个工具：
 
-- `generate_image2`：根据提示词生成图片。
-- `edit_image2`：根据一张或多张本地参考图编辑图片。
+- `generate_image2`：调用 OpenAI-compatible 的 `gpt-image-2` 生图接口
+- `edit_image2`：调用 `gpt-image-2` 的图生图编辑接口（支持多图输入和可选蒙版）
 
-两个工具都调用 OpenAI-compatible 的 `gpt-image-2` 接口，把返回的
-`b64_json` 解码成 PNG 文件并保存到本地。
+两个工具都会把接口返回的 `b64_json` 解码成 PNG 文件并保存到本地。
 
 默认图片网关：
 
@@ -21,9 +20,9 @@ https://api.schyler.top
 {OPENAI_IMAGE_BASE_URL}/v1/images/edits
 ```
 
-如果 `OPENAI_IMAGE_BASE_URL` 已经以 `/v1`、`/images/generations`、
-`/v1/images/generations`、`/images/edits` 或 `/v1/images/edits` 结尾，
-程序会自动避免重复拼接对应路径。
+如果 `OPENAI_IMAGE_BASE_URL` 已经以 `/v1`、`/v1/images/generations` 或
+`/v1/images/edits` 结尾，程序会自动避免重复拼接 `/v1`，并推导出另一个
+图片端点。
 
 ## 前置条件
 
@@ -269,6 +268,7 @@ MCP 工具名：
 
 ```text
 generate_image2
+edit_image2
 ```
 
 入参示例：
@@ -319,56 +319,60 @@ C:\Users\you\Desktop\images
 }
 ```
 
-### 图生图
+### edit_image2
 
-MCP 工具名：
+调用接口：
 
 ```text
-edit_image2
+POST {OPENAI_IMAGE_BASE_URL}/v1/images/edits
+Content-Type: multipart/form-data
 ```
 
-单图入参示例：
+入参示例：
 
 ```json
 {
-  "prompt": "保留主体与构图，改成暖金色电影灯光",
-  "image_paths": [
-    "/Users/you/Desktop/reference.png"
-  ],
+  "prompt": "Add a cat sitting on the desk",
+  "image_paths": ["/Users/you/Desktop/images/desk.png"],
   "size": "1024x1024",
-  "quality": "auto",
+  "mask_path": "/Users/you/Desktop/images/mask.png",
   "output_dir": "/Users/you/Desktop/images",
-  "output_name": "edited.png"
-}
-```
-
-多图入参示例：
-
-```json
-{
-  "prompt": "以第一张图为主体，以第二张图为服装和配色参考",
-  "image_paths": [
-    "/Users/you/Desktop/subject.png",
-    "/Users/you/Desktop/style.png"
-  ],
-  "output_name": "combined.png"
+  "output_name": "desk-with-cat.png"
 }
 ```
 
 字段说明：
 
 ```text
-prompt       必填，编辑指令
-image_paths  必填，一个或多个本地图片绝对路径；顺序会原样保留
+prompt       必填，编辑提示词
+image_paths  必填，源图片绝对路径列表，至少一个
 size         可选，默认 1024x1024
-quality      可选，默认 auto
+mask_path    可选，蒙版图片绝对路径
 output_dir   可选，图片保存目录；如果传入，必须是绝对路径
 output_name  可选，图片文件名；不传则自动生成 image2-时间戳.png
 ```
 
-`image_paths` 中的每个路径都必须存在并指向普通文件。工具会用重复的
-`image` multipart 字段按数组顺序上传图片，不支持远程 URL 或 Base64 参数。
-返回结构与 `generate_image2` 相同。
+`image_paths` 规则：
+
+- 至少传一个路径
+- 每个路径必须是绝对路径且文件存在
+
+`mask_path` 规则：
+
+- 不传或为空：不使用蒙版
+- 传绝对路径：文件必须存在
+
+`output_dir` 规则与 `generate_image2` 相同。
+
+返回示例与 `generate_image2` 相同：
+
+```json
+{
+  "file_path": "/Users/you/Desktop/images/desk-with-cat.png",
+  "model": "gpt-image-2",
+  "size": "1024x1024"
+}
+```
 
 ## 脚本参数
 
