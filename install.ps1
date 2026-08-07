@@ -135,7 +135,14 @@ function Set-RestrictedFileAcl([string]$Path) {
 
 function Move-FileAtomically([string]$Source, [string]$Destination) {
   if (Test-Path $Destination) {
-    [IO.File]::Replace($Source, $Destination, $null)
+    $Backup = "$Destination.bak.$([Guid]::NewGuid().ToString('N'))"
+    try {
+      [IO.File]::Replace($Source, $Destination, $Backup)
+    } finally {
+      if (Test-Path $Backup) {
+        Remove-Item -Force $Backup
+      }
+    }
   } else {
     [IO.File]::Move($Source, $Destination)
   }
