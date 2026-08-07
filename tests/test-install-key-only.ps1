@@ -18,30 +18,21 @@ function Assert-InstallerParses {
 
 function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "") {
   $PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
-  $Info = New-Object System.Diagnostics.ProcessStartInfo
-  $Info.FileName = $PowerShell
+  $InputFile = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdin-" + [Guid]::NewGuid().ToString("N"))
+  $StdoutFile = $InputFile + ".stdout"
+  $StderrFile = $InputFile + ".stderr"
   $QuotedInstaller = '"' + $script:Installer.Replace('"', '\"') + '"'
-  $Info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $QuotedInstaller " + ($InstallerArgs -join " ")
-  $Info.UseShellExecute = $false
-  $Info.RedirectStandardInput = $true
-  $Info.RedirectStandardOutput = $true
-  $Info.RedirectStandardError = $true
-  $Info.CreateNoWindow = $true
-  $Process = New-Object System.Diagnostics.Process
-  $Process.StartInfo = $Info
-  [void]$Process.Start()
-  if ($InputText.Length -gt 0) {
-    $InputBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($InputText)
-    $Process.StandardInput.BaseStream.Write($InputBytes, 0, $InputBytes.Length)
-    $Process.StandardInput.BaseStream.Flush()
-  }
-  $Process.StandardInput.Close()
-  $Stdout = $Process.StandardOutput.ReadToEnd()
-  $Stderr = $Process.StandardError.ReadToEnd()
-  $Process.WaitForExit()
-  return [PSCustomObject]@{
-    ExitCode = $Process.ExitCode
-    Output = $Stdout + $Stderr
+  $Arguments = "-NoProfile -ExecutionPolicy Bypass -File $QuotedInstaller " + ($InstallerArgs -join " ")
+  try {
+    [IO.File]::WriteAllText($InputFile, $InputText, (New-Object Text.UTF8Encoding($false)))
+    $Process = Start-Process -FilePath $PowerShell -ArgumentList $Arguments -NoNewWindow -Wait -PassThru `
+      -RedirectStandardInput $InputFile -RedirectStandardOutput $StdoutFile -RedirectStandardError $StderrFile
+    return [PSCustomObject]@{
+      ExitCode = $Process.ExitCode
+      Output = [IO.File]::ReadAllText($StdoutFile) + [IO.File]::ReadAllText($StderrFile)
+    }
+  } finally {
+    Remove-Item -Force -ErrorAction SilentlyContinue $InputFile, $StdoutFile, $StderrFile
   }
 }
 

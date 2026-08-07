@@ -187,19 +187,8 @@ function Read-KeyOnce {
     }
   }
 
-  if ($InputIsRedirected) {
-    $MojibakeBom = -join @([char]226, [char]8226, [char]8212, [char]226, [char]8221, [char]144)
-    while ($Value.Length -gt 0) {
-      if ($Value[0] -eq [char]0xFEFF) {
-        $Value = $Value.Substring(1)
-        continue
-      }
-      if ($Value.StartsWith($MojibakeBom, [StringComparison]::Ordinal)) {
-        $Value = $Value.Substring($MojibakeBom.Length)
-        continue
-      }
-      break
-    }
+  if ($InputIsRedirected -and $Value.StartsWith([char]0xFEFF)) {
+    $Value = $Value.Substring(1)
   }
   if ([string]::IsNullOrWhiteSpace($Value)) {
     throw "API Key cannot be blank"
