@@ -204,7 +204,7 @@ validate_image2_config_headers() {
     function array_table_header(line) {
       return line ~ /^[[:space:]]*\[\[[^][]+\]\][[:space:]]*(#.*)?$/
     }
-    (table_header($0) || array_table_header($0)) && $0 ~ /mcp_servers\.image2/ && !image2_header($0) { exit 1 }
+    (table_header($0) || array_table_header($0)) && $0 ~ /mcp_servers\.image2(\.|[[:space:]]*\])/ && !image2_header($0) { exit 1 }
   ' "$input"
 }
 

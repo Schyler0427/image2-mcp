@@ -54,6 +54,9 @@ OLD = "value"
 
 [mcp_servers.keep]
 command = "/keep/runner"
+
+[mcp_servers.image20]
+command = "/keep/image20-runner"
 TOML
 
 help_config_before="$(cksum "$home/.codex/config.toml")"
@@ -86,6 +89,8 @@ assert_contains "$repo/.env.local" 'OPENAI_IMAGE_BASE_URL=https://api.schyler.to
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_API_KEY='
 assert_contains "$home/.codex/config.toml" 'model = "gpt-5"'
 assert_contains "$home/.codex/config.toml" '[mcp_servers.keep]'
+assert_contains "$home/.codex/config.toml" '[mcp_servers.image20]'
+assert_contains "$home/.codex/config.toml" '/keep/image20-runner'
 assert_not_contains "$home/.codex/config.toml" '/old/runner'
 assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
 [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'image2 root table count is not 1'
