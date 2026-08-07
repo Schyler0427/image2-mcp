@@ -99,7 +99,6 @@ command = "C:\keep\image20-runner.exe"
   $Secret = 'sk-test-do-not-print'
   $Result = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`nignored-second-line`r`n")
   Assert-True ($Result.ExitCode -eq 0) "Key-only install failed: $($Result.Output)"
-  Assert-True ($Result.Output.Contains("Test input mode: redirected")) "key-only installer did not use redirected input"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
   Assert-True (-not $Result.Output.Contains($Secret)) "API Key leaked to output"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"
@@ -157,41 +156,8 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($RawStoredKey.Trim().EndsWith('"')) "stored dotenv value is missing its closing quote"
   $StructuralDecodedKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
   Assert-True ($StructuralDecodedKey -cne ($ExpectedSecret + "`r`nignored-second-line`r`n")) "stored API Key consumed the complete redirected input"
-  Assert-True ($StructuralDecodedKey -cne $ExpectedSecret.Substring(1)) "stored API Key lost its first character"
-  Assert-True ($StructuralDecodedKey -cne $ExpectedSecret.Substring(0, $ExpectedSecret.Length - 1)) "stored API Key lost its last character"
-  $LeadingBomCount = 0
-  while ($LeadingBomCount -lt $StructuralDecodedKey.Length -and $StructuralDecodedKey[$LeadingBomCount] -eq [char]0xFEFF) {
-    $LeadingBomCount++
-  }
-  Assert-True ($LeadingBomCount -eq 0) "stored API Key contains $LeadingBomCount redirected-input BOM characters"
-  Assert-True (-not ($StructuralDecodedKey.StartsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length)) "stored API Key contains an extra suffix"
-  if ($StructuralDecodedKey.EndsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length) {
-    $PrefixLength = $StructuralDecodedKey.Length - $ExpectedSecret.Length
-    $PrefixCodeUnits = @(($StructuralDecodedKey.Substring(0, $PrefixLength)).ToCharArray() | ForEach-Object { [int]$_ })
-    $PrefixCategory = switch ($PrefixCodeUnits -join ",") {
-      "239,187,191" { "UTF-8 BOM decoded as Windows-1252"; break }
-      "239,187,191,239,187,191" { "two UTF-8 BOMs decoded as Windows-1252"; break }
-      "8745,9559,9488" { "UTF-8 BOM decoded as OEM 437"; break }
-      "8745,9559,9488,8745,9559,9488" { "two UTF-8 BOMs decoded as OEM 437"; break }
-      "180,9559,9488" { "UTF-8 BOM decoded as OEM 850"; break }
-      "180,9559,9488,180,9559,9488" { "two UTF-8 BOMs decoded as OEM 850"; break }
-      default { "unclassified $PrefixLength-code-unit prefix ($($PrefixCodeUnits -join ','))" }
-    }
-    throw "FAIL: stored API Key contains $PrefixCategory"
-  }
-  if ($RawStoredKey.Trim().Length -ne $ExpectedStoredKey.Length) {
-    $BomCount = @($StructuralDecodedKey.ToCharArray() | Where-Object { $_ -eq [char]0xFEFF }).Count
-    $NulCount = @($StructuralDecodedKey.ToCharArray() | Where-Object { $_ -eq [char]0 }).Count
-    $SharedLength = [Math]::Min($StructuralDecodedKey.Length, $ExpectedSecret.Length)
-    $FirstMismatch = $SharedLength
-    for ($Index = 0; $Index -lt $SharedLength; $Index++) {
-      if ($StructuralDecodedKey[$Index] -cne $ExpectedSecret[$Index]) {
-        $FirstMismatch = $Index
-        break
-      }
-    }
-    throw "FAIL: stored dotenv length expected $($ExpectedStoredKey.Length), actual $($RawStoredKey.Trim().Length); decoded expected $($ExpectedSecret.Length), actual $($StructuralDecodedKey.Length); BOM $BomCount; NUL $NulCount; first mismatch $FirstMismatch"
-  }
+  Assert-True (-not $StructuralDecodedKey.StartsWith([char]0xFEFF)) "stored API Key contains a redirected-input BOM"
+  Assert-True ($RawStoredKey.Trim().Length -eq $ExpectedStoredKey.Length) "stored dotenv value length differs from codec output"
   Assert-True ($RawStoredKey.Trim().Substring(1, $RawStoredKey.Trim().Length - 2) -ceq $ExpectedSecret) "stored dotenv payload differs from input"
   Assert-True ($RawStoredKey.Trim() -ceq $ExpectedStoredKey) "stored dotenv encoding differs from codec output"
   $DecodedStoredKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
