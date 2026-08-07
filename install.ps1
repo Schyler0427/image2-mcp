@@ -184,6 +184,9 @@ function Read-KeyOnce {
     }
   }
 
+  if ($InputIsRedirected -and $Value.Length -gt 0 -and [int]$Value[0] -eq 0xFEFF) {
+    $Value = $Value.Substring(1)
+  }
   if ([string]::IsNullOrWhiteSpace($Value)) {
     throw "API Key cannot be blank"
   }
