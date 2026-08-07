@@ -162,6 +162,10 @@ command = "C:\keep\image20-runner.exe"
   $ExpectedStoredKey = ConvertTo-DotEnvValue $ExpectedSecret
   Assert-True ($RawStoredKey.Trim().StartsWith('"')) "stored dotenv value is missing its opening quote"
   Assert-True ($RawStoredKey.Trim().EndsWith('"')) "stored dotenv value is missing its closing quote"
+  $StructuralDecodedKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
+  Assert-True ($StructuralDecodedKey -cne ($ExpectedSecret + "`r`nignored-second-line`r`n")) "stored API Key consumed the complete redirected input"
+  Assert-True (-not ($StructuralDecodedKey.StartsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length)) "stored API Key contains an extra suffix"
+  Assert-True (-not ($StructuralDecodedKey.EndsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length)) "stored API Key contains an extra prefix"
   Assert-True ($RawStoredKey.Trim().Length -eq $ExpectedStoredKey.Length) "stored dotenv value length differs from codec output"
   Assert-True ($RawStoredKey.Trim().Substring(1, $RawStoredKey.Trim().Length - 2) -ceq $ExpectedSecret) "stored dotenv payload differs from input"
   Assert-True ($RawStoredKey.Trim() -ceq $ExpectedStoredKey) "stored dotenv encoding differs from codec output"
