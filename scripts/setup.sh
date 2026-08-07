@@ -180,7 +180,7 @@ remove_image2_config_namespace() {
   local input="$1" output="$2"
   awk '
     function image2_header(line) {
-      return line ~ /^[[:space:]]*\[mcp_servers\.image2(\.[^]]+)?\][[:space:]]*(#.*)?$/
+      return line ~ /^[[:space:]]*\[mcp_servers[[:space:]]*\.[[:space:]]*image2([[:space:]]*\.[[:space:]]*[^]]+)?\][[:space:]]*(#.*)?$/
     }
     function table_header(line) {
       return line ~ /^[[:space:]]*\[[^][]+\][[:space:]]*(#.*)?$/
@@ -196,7 +196,7 @@ validate_image2_config_headers() {
   local input="$1"
   awk '
     function image2_header(line) {
-      return line ~ /^[[:space:]]*\[mcp_servers\.image2(\.[^]]+)?\][[:space:]]*(#.*)?$/
+      return line ~ /^[[:space:]]*\[mcp_servers[[:space:]]*\.[[:space:]]*image2([[:space:]]*\.[[:space:]]*[^]]+)?\][[:space:]]*(#.*)?$/
     }
     function table_header(line) {
       return line ~ /^[[:space:]]*\[[^][]+\][[:space:]]*(#.*)?$/
@@ -204,7 +204,7 @@ validate_image2_config_headers() {
     function array_table_header(line) {
       return line ~ /^[[:space:]]*\[\[[^][]+\]\][[:space:]]*(#.*)?$/
     }
-    (table_header($0) || array_table_header($0)) && $0 ~ /mcp_servers\.image2(\.|[[:space:]]*\])/ && !image2_header($0) { exit 1 }
+    (table_header($0) || array_table_header($0)) && $0 ~ /mcp_servers[[:space:]]*\.[[:space:]]*image2([[:space:]]*\.|[[:space:]]*\])/ && !image2_header($0) { exit 1 }
   ' "$input"
 }
 

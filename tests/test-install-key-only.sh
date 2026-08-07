@@ -104,6 +104,28 @@ assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
   [[ "$OPENAI_IMAGE_BASE_URL" == 'https://api.schyler.top' ]] || fail 'stored base URL is not fixed'
 )
 
+spaced_home="$tmp/spaced-home"
+mkdir -p "$spaced_home/.codex"
+cat > "$spaced_home/.codex/config.toml" <<'TOML'
+model = "gpt-5"
+
+[mcp_servers . image2]
+command = "/spaced/old-runner"
+
+[mcp_servers . image2 . env]
+OLD = "spaced value"
+
+[mcp_servers.image20]
+command = "/keep/image20-runner"
+TOML
+printf '%s\n' "$secret" | HOME="$spaced_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/spaced-header.log" 2>&1
+assert_not_contains "$spaced_home/.codex/config.toml" '/spaced/old-runner'
+assert_not_contains "$spaced_home/.codex/config.toml" 'spaced value'
+assert_contains "$spaced_home/.codex/config.toml" '[mcp_servers.image20]'
+assert_contains "$spaced_home/.codex/config.toml" '/keep/image20-runner'
+[[ "$(grep -c '^\[mcp_servers\.image2\]$' "$spaced_home/.codex/config.toml")" -eq 1 ]] || fail 'spaced Image2 root table count is not 1'
+
 before="$(cksum "$repo/dist/image2-mcp")"
 if printf '%s\n' "$secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   IMAGE2_MCP_REPO='Schyler0427/image2-mcp' IMAGE2_MCP_TEST_CURL_FAIL=1 \
