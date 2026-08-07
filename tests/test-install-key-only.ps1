@@ -91,20 +91,20 @@ command = "C:\keep\image20-runner.exe"
   [IO.File]::WriteAllText($ConfigFile, $InitialConfig, (New-Object Text.UTF8Encoding($false)))
 
   $ConfigHash = (Get-FileHash $ConfigFile -Algorithm SHA256).Hash
-  $Help = Invoke-TestInstaller @("-Help")
+  $Help = Invoke-TestInstaller -InstallerArgs @("-Help")
   Assert-True ($Help.ExitCode -eq 0) "-Help failed"
   Assert-True ($Help.Output.Contains("Usage:")) "-Help omitted usage"
   Assert-True (-not $Help.Output.Contains("Downloading prebuilt binary")) "-Help started installation"
   Assert-True (((Get-FileHash $ConfigFile -Algorithm SHA256).Hash) -eq $ConfigHash) "-Help changed Codex config"
   Assert-True (-not (Test-Path $EnvFile)) "-Help wrote .env.local"
 
-  $KeyHelp = Invoke-TestInstaller @("-KeyOnly", "-Help")
+  $KeyHelp = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-Help")
   Assert-True ($KeyHelp.ExitCode -eq 0) "-KeyOnly -Help failed"
   Assert-True (-not $KeyHelp.Output.Contains("OPENAI_IMAGE_API_KEY:")) "-KeyOnly -Help prompted for a key"
   Assert-True (-not (Test-Path $EnvFile)) "-KeyOnly -Help wrote .env.local"
 
   $Secret = 'sk-test-do-not-print'
-  $Result = Invoke-TestInstaller @("-KeyOnly") ($Secret + "`r`nignored-second-line`r`n")
+  $Result = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`nignored-second-line`r`n")
   Assert-True ($Result.ExitCode -eq 0) "Key-only install failed: $($Result.Output)"
   Assert-True ($Result.Output.Contains("Test input mode: redirected")) "key-only installer did not use redirected input"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
@@ -182,17 +182,17 @@ command = "C:\keep\image20-runner.exe"
   Assert-True $Unsupported "unsupported architecture unexpectedly succeeded"
 
   $EnvHash = (Get-FileHash $EnvFile -Algorithm SHA256).Hash
-  $Blank = Invoke-TestInstaller @("-KeyOnly") "   `r`n"
+  $Blank = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText "   `r`n"
   Assert-True ($Blank.ExitCode -ne 0) "blank API Key unexpectedly succeeded"
   Assert-True (((Get-FileHash $EnvFile -Algorithm SHA256).Hash) -eq $EnvHash) "blank API Key changed .env.local"
 
-  $Conflict = Invoke-TestInstaller @("-KeyOnly", "-BaseUrl", "https://example.invalid")
+  $Conflict = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-BaseUrl", "https://example.invalid")
   Assert-True ($Conflict.ExitCode -ne 0) "conflicting key-only options unexpectedly succeeded"
 
   $BinaryFile = Join-Path $Repo "dist\image2-mcp.exe"
   $BinaryHash = (Get-FileHash $BinaryFile -Algorithm SHA256).Hash
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", (Join-Path $TempRoot "missing.zip"), "Process")
-  $DownloadFailure = Invoke-TestInstaller @("-KeyOnly") ($Secret + "`r`n")
+  $DownloadFailure = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
   Assert-True ($DownloadFailure.ExitCode -ne 0) "missing Release fixture unexpectedly succeeded"
   Assert-True (((Get-FileHash $BinaryFile -Algorithm SHA256).Hash) -eq $BinaryHash) "failed download replaced working binary"
 
@@ -204,7 +204,7 @@ command = "C:\keep\image20-runner.exe"
   [Environment]::SetEnvironmentVariable("USERPROFILE", $ArrayHome, "Process")
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", $Fixture, "Process")
   $ArrayHash = (Get-FileHash $ArrayConfig -Algorithm SHA256).Hash
-  $ArrayResult = Invoke-TestInstaller @("-KeyOnly") ($Secret + "`r`n")
+  $ArrayResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
   Assert-True ($ArrayResult.ExitCode -ne 0) "Image2 array table unexpectedly succeeded"
   Assert-True ($ArrayResult.Output.Contains("unsupported Image2 TOML table header")) "array-table error is unclear"
   Assert-True (((Get-FileHash $ArrayConfig -Algorithm SHA256).Hash) -eq $ArrayHash) "array-table config changed"
@@ -226,7 +226,7 @@ command = "C:\keep\image20-runner.exe"
 '@, (New-Object Text.UTF8Encoding($false)))
   [Environment]::SetEnvironmentVariable("HOME", $SpacedHome, "Process")
   [Environment]::SetEnvironmentVariable("USERPROFILE", $SpacedHome, "Process")
-  $SpacedResult = Invoke-TestInstaller @("-KeyOnly") ($Secret + "`r`n")
+  $SpacedResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
   Assert-True ($SpacedResult.ExitCode -eq 0) "spaced Image2 tables were not replaced"
   $SpacedText = [IO.File]::ReadAllText($SpacedConfig)
   Assert-True (-not $SpacedText.Contains('C:\spaced\old-runner.ps1')) "spaced Image2 root config remains"
@@ -243,7 +243,7 @@ command = "C:\quoted\old-runner.ps1"
   [Environment]::SetEnvironmentVariable("HOME", $QuotedHome, "Process")
   [Environment]::SetEnvironmentVariable("USERPROFILE", $QuotedHome, "Process")
   $QuotedHash = (Get-FileHash $QuotedConfig -Algorithm SHA256).Hash
-  $QuotedResult = Invoke-TestInstaller @("-KeyOnly") ($Secret + "`r`n")
+  $QuotedResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
   Assert-True ($QuotedResult.ExitCode -ne 0) "quoted Image2 table unexpectedly succeeded"
   Assert-True ($QuotedResult.Output.Contains("unsupported Image2 TOML table header")) "quoted Image2 table error is unclear"
   Assert-True (((Get-FileHash $QuotedConfig -Algorithm SHA256).Hash) -eq $QuotedHash) "quoted Image2 config changed"
