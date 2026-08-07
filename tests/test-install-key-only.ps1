@@ -103,7 +103,7 @@ command = "C:\keep\image20-runner.exe"
   Assert-True (-not $KeyHelp.Output.Contains("OPENAI_IMAGE_API_KEY:")) "-KeyOnly -Help prompted for a key"
   Assert-True (-not (Test-Path $EnvFile)) "-KeyOnly -Help wrote .env.local"
 
-  $Secret = 'sk-test-"quote"-slash\value'
+  $Secret = 'sk-test-do-not-print'
   $Result = Invoke-TestInstaller @("-KeyOnly") ($Secret + "`r`nignored-second-line`r`n")
   Assert-True ($Result.ExitCode -eq 0) "Key-only install failed: $($Result.Output)"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
@@ -140,6 +140,19 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($Secret -ceq $ExpectedSecret) "test secret variable changed after dot-sourcing installer"
   $DotEnvRoundTrip = "slash\quote`"carriage`rtab`t"
   Assert-True ((ConvertFrom-DotEnvValue (ConvertTo-DotEnvValue $DotEnvRoundTrip)) -ceq $DotEnvRoundTrip) "dotenv escaping did not round-trip"
+  $PrimaryRepoDir = $RepoDir
+  $RoundTripRepo = Join-Path $TempRoot "dotenv-roundtrip"
+  New-Item -ItemType Directory -Force -Path $RoundTripRepo | Out-Null
+  try {
+    $script:RepoDir = $RoundTripRepo
+    $script:KeyOnlyApiKey = $DotEnvRoundTrip
+    Write-KeyOnlyEnvironment
+    Import-DotEnv (Join-Path $RoundTripRepo ".env.local")
+    Assert-True ($env:OPENAI_IMAGE_API_KEY -ceq $DotEnvRoundTrip) "stored complex dotenv value did not round-trip"
+  } finally {
+    $script:RepoDir = $PrimaryRepoDir
+    $script:KeyOnlyApiKey = ""
+  }
   $StoredKeyLine = @(Get-Content $EnvFile | Where-Object { $_.StartsWith("OPENAI_IMAGE_API_KEY=") })
   Assert-True ($StoredKeyLine.Count -eq 1) "stored dotenv key line count is not one"
   $StoredKeyMatch = [regex]::Match($StoredKeyLine[0], '^OPENAI_IMAGE_API_KEY=(.*)$')
@@ -149,15 +162,6 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($RawStoredKey.Trim() -ceq $ExpectedStoredKey) "stored dotenv encoding differs from codec output"
   $DecodedStoredKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
   Assert-True ($DecodedStoredKey -cne "old-key-must-be-ignored") "installer stored the ambient API Key"
-  Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`r")) "stored API Key retained a carriage return"
-  Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`n")) "stored API Key retained a line feed"
-  Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`r`nignored-second-line")) "stored API Key consumed a second input line"
-  Assert-True ($DecodedStoredKey -cne $ExpectedSecret.Replace('"', '')) "stored API Key lost quote characters"
-  Assert-True ($DecodedStoredKey -cne $ExpectedSecret.Replace('\', '')) "stored API Key lost backslash characters"
-  Assert-True ($DecodedStoredKey -cne $ExpectedSecret.Replace('"', '\"')) "stored API Key retained quote escapes"
-  Assert-True ($DecodedStoredKey -cne $ExpectedSecret.Replace('\', '\\')) "stored API Key retained doubled backslashes"
-  Assert-True ($DecodedStoredKey -cne $ExpectedSecret.Replace('\', '\\').Replace('"', '\"')) "stored API Key remained dotenv encoded"
-  Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "ignored-second-line")) "stored API Key concatenated a second input line"
   Assert-True ($DecodedStoredKey -ceq $ExpectedSecret) "stored dotenv value did not decode"
   Import-DotEnv $EnvFile
   Assert-True ($env:OPENAI_IMAGE_BASE_URL -eq "https://api.schyler.top") "stored base URL is not fixed"
