@@ -182,7 +182,7 @@ command = "C:\keep\image20-runner.exe"
       "8745,9559,9488,8745,9559,9488" { "two UTF-8 BOMs decoded as OEM 437"; break }
       "180,9559,9488" { "UTF-8 BOM decoded as OEM 850"; break }
       "180,9559,9488,180,9559,9488" { "two UTF-8 BOMs decoded as OEM 850"; break }
-      default { "unclassified $PrefixLength-code-unit prefix" }
+      default { "unclassified $PrefixLength-code-unit prefix ($($PrefixCodeUnits -join ','))" }
     }
     throw "FAIL: stored API Key contains $PrefixCategory"
   }
