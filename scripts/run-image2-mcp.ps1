@@ -3,6 +3,38 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoDir = Split-Path -Parent $ScriptDir
 
+function ConvertFrom-DotEnvValue([string]$Value) {
+  if (-not ($Value.StartsWith('"') -and $Value.EndsWith('"'))) {
+    if ($Value.StartsWith("'") -and $Value.EndsWith("'")) {
+      return $Value.Substring(1, $Value.Length - 2)
+    }
+    return $Value
+  }
+
+  $Inner = $Value.Substring(1, $Value.Length - 2)
+  $Builder = New-Object Text.StringBuilder
+  for ($Index = 0; $Index -lt $Inner.Length; $Index++) {
+    $Char = $Inner[$Index]
+    if ($Char -ne '\') {
+      [void]$Builder.Append($Char)
+      continue
+    }
+    $Index++
+    if ($Index -ge $Inner.Length) {
+      throw "invalid trailing escape in dotenv value"
+    }
+    switch ($Inner[$Index]) {
+      '\' { [void]$Builder.Append('\') }
+      '"' { [void]$Builder.Append('"') }
+      'r' { [void]$Builder.Append("`r") }
+      'n' { [void]$Builder.Append("`n") }
+      't' { [void]$Builder.Append("`t") }
+      default { throw "unsupported escape in dotenv value" }
+    }
+  }
+  return $Builder.ToString()
+}
+
 function Import-DotEnv([string]$Path) {
   if (-not (Test-Path $Path)) {
     return
@@ -17,10 +49,7 @@ function Import-DotEnv([string]$Path) {
       continue
     }
     $Name = $Parts[0].Trim()
-    $Value = $Parts[1].Trim()
-    if (($Value.StartsWith('"') -and $Value.EndsWith('"')) -or ($Value.StartsWith("'") -and $Value.EndsWith("'"))) {
-      $Value = $Value.Substring(1, $Value.Length - 2)
-    }
+    $Value = ConvertFrom-DotEnvValue $Parts[1].Trim()
     [Environment]::SetEnvironmentVariable($Name, $Value, "Process")
   }
 }
