@@ -24,6 +24,7 @@ function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "")
   $Info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $QuotedInstaller " + ($InstallerArgs -join " ")
   $Info.UseShellExecute = $false
   $Info.RedirectStandardInput = $true
+  $Info.StandardInputEncoding = New-Object Text.UTF8Encoding($false)
   $Info.RedirectStandardOutput = $true
   $Info.RedirectStandardError = $true
   $Info.CreateNoWindow = $true
@@ -164,6 +165,7 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($RawStoredKey.Trim().EndsWith('"')) "stored dotenv value is missing its closing quote"
   $StructuralDecodedKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
   Assert-True ($StructuralDecodedKey -cne ($ExpectedSecret + "`r`nignored-second-line`r`n")) "stored API Key consumed the complete redirected input"
+  Assert-True (-not $StructuralDecodedKey.StartsWith([char]0xFEFF)) "stored API Key contains a redirected-input BOM"
   Assert-True (-not ($StructuralDecodedKey.StartsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length)) "stored API Key contains an extra suffix"
   Assert-True (-not ($StructuralDecodedKey.EndsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length)) "stored API Key contains an extra prefix"
   Assert-True ($RawStoredKey.Trim().Length -eq $ExpectedStoredKey.Length) "stored dotenv value length differs from codec output"
