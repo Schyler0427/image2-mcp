@@ -19,20 +19,28 @@ function Assert-InstallerParses {
 function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "") {
   $PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
   $InputFile = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdin-" + [Guid]::NewGuid().ToString("N"))
-  $StdoutFile = $InputFile + ".stdout"
-  $StderrFile = $InputFile + ".stderr"
-  $QuotedInstaller = '"' + $script:Installer.Replace('"', '\"') + '"'
-  $Arguments = "-NoProfile -ExecutionPolicy Bypass -File $QuotedInstaller " + ($InstallerArgs -join " ")
   try {
     [IO.File]::WriteAllText($InputFile, $InputText, (New-Object Text.UTF8Encoding($false)))
-    $Process = Start-Process -FilePath $PowerShell -ArgumentList $Arguments -NoNewWindow -Wait -PassThru `
-      -RedirectStandardInput $InputFile -RedirectStandardOutput $StdoutFile -RedirectStandardError $StderrFile
+    $Info = New-Object System.Diagnostics.ProcessStartInfo
+    $Info.FileName = $env:ComSpec
+    $Info.Arguments = '/d /s /c ""' + $PowerShell + '" -NoProfile -ExecutionPolicy Bypass -File "' + `
+      $script:Installer + '" ' + ($InstallerArgs -join ' ') + ' < "' + $InputFile + '""'
+    $Info.UseShellExecute = $false
+    $Info.RedirectStandardOutput = $true
+    $Info.RedirectStandardError = $true
+    $Info.CreateNoWindow = $true
+    $Process = New-Object System.Diagnostics.Process
+    $Process.StartInfo = $Info
+    [void]$Process.Start()
+    $Stdout = $Process.StandardOutput.ReadToEnd()
+    $Stderr = $Process.StandardError.ReadToEnd()
+    $Process.WaitForExit()
     return [PSCustomObject]@{
       ExitCode = $Process.ExitCode
-      Output = [IO.File]::ReadAllText($StdoutFile) + [IO.File]::ReadAllText($StderrFile)
+      Output = $Stdout + $Stderr
     }
   } finally {
-    Remove-Item -Force -ErrorAction SilentlyContinue $InputFile, $StdoutFile, $StderrFile
+    Remove-Item -Force -ErrorAction SilentlyContinue $InputFile
   }
 }
 
