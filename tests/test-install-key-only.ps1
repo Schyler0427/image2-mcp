@@ -135,14 +135,21 @@ command = "C:\keep\image20-runner.exe"
     Assert-True ($AclIdentities -contains $ExpectedIdentity) ".env.local ACL is missing $ExpectedIdentity"
   }
 
+  $ExpectedSecret = $Secret
   . $script:Installer
+  Assert-True ($Secret -ceq $ExpectedSecret) "test secret variable changed after dot-sourcing installer"
   $DotEnvRoundTrip = "slash\quote`"carriage`rtab`t"
   Assert-True ((ConvertFrom-DotEnvValue (ConvertTo-DotEnvValue $DotEnvRoundTrip)) -ceq $DotEnvRoundTrip) "dotenv escaping did not round-trip"
   $StoredKeyLine = @(Get-Content $EnvFile | Where-Object { $_.StartsWith("OPENAI_IMAGE_API_KEY=") })
   Assert-True ($StoredKeyLine.Count -eq 1) "stored dotenv key line count is not one"
   $StoredKeyMatch = [regex]::Match($StoredKeyLine[0], '^OPENAI_IMAGE_API_KEY=(.*)$')
   Assert-True ($StoredKeyMatch.Success) "stored dotenv key line is malformed"
-  Assert-True ((ConvertFrom-DotEnvValue ($StoredKeyMatch.Groups[1].Value)) -ceq $Secret) "stored dotenv value did not decode"
+  $DecodedStoredKey = ConvertFrom-DotEnvValue ($StoredKeyMatch.Groups[1].Value)
+  Assert-True ($DecodedStoredKey -cne "old-key-must-be-ignored") "installer stored the ambient API Key"
+  Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`r")) "stored API Key retained a carriage return"
+  Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`n")) "stored API Key retained a line feed"
+  Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`r`nignored-second-line")) "stored API Key consumed a second input line"
+  Assert-True ($DecodedStoredKey -ceq $ExpectedSecret) "stored dotenv value did not decode"
   Import-DotEnv $EnvFile
   Assert-True ($env:OPENAI_IMAGE_BASE_URL -eq "https://api.schyler.top") "stored base URL is not fixed"
   Assert-True ($env:OPENAI_IMAGE_API_KEY -eq $Secret) "stored API Key did not round-trip"
