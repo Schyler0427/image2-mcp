@@ -136,6 +136,13 @@ command = "C:\keep\image20-runner.exe"
   }
 
   . $script:Installer
+  $DotEnvRoundTrip = "slash\quote`"carriage`rtab`t"
+  Assert-True ((ConvertFrom-DotEnvValue (ConvertTo-DotEnvValue $DotEnvRoundTrip)) -ceq $DotEnvRoundTrip) "dotenv escaping did not round-trip"
+  $StoredKeyLine = @(Get-Content $EnvFile | Where-Object { $_.StartsWith("OPENAI_IMAGE_API_KEY=") })
+  Assert-True ($StoredKeyLine.Count -eq 1) "stored dotenv key line count is not one"
+  $StoredKeyMatch = [regex]::Match($StoredKeyLine[0], '^OPENAI_IMAGE_API_KEY=(.*)$')
+  Assert-True ($StoredKeyMatch.Success) "stored dotenv key line is malformed"
+  Assert-True ((ConvertFrom-DotEnvValue $StoredKeyMatch.Groups[1].Value) -ceq $Secret) "stored dotenv value did not decode"
   Import-DotEnv $EnvFile
   Assert-True ($env:OPENAI_IMAGE_BASE_URL -eq "https://api.schyler.top") "stored base URL is not fixed"
   Assert-True ($env:OPENAI_IMAGE_API_KEY -eq $Secret) "stored API Key did not round-trip"
@@ -144,8 +151,6 @@ command = "C:\keep\image20-runner.exe"
   $Unsupported = $false
   try { [void](Get-ArchName "RISCV64") } catch { $Unsupported = $true }
   Assert-True $Unsupported "unsupported architecture unexpectedly succeeded"
-  $DotEnvRoundTrip = "slash\quote`"carriage`rtab`t"
-  Assert-True ((ConvertFrom-DotEnvValue (ConvertTo-DotEnvValue $DotEnvRoundTrip)) -ceq $DotEnvRoundTrip) "dotenv escaping did not round-trip"
 
   $EnvHash = (Get-FileHash $EnvFile -Algorithm SHA256).Hash
   $Blank = Invoke-TestInstaller @("-KeyOnly") "   `r`n"
