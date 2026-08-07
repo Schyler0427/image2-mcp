@@ -24,7 +24,6 @@ function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "")
   $Info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $QuotedInstaller " + ($InstallerArgs -join " ")
   $Info.UseShellExecute = $false
   $Info.RedirectStandardInput = $true
-  $Info.StandardInputEncoding = New-Object Text.UTF8Encoding($false)
   $Info.RedirectStandardOutput = $true
   $Info.RedirectStandardError = $true
   $Info.CreateNoWindow = $true
@@ -32,7 +31,9 @@ function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "")
   $Process.StartInfo = $Info
   [void]$Process.Start()
   if ($InputText.Length -gt 0) {
-    $Process.StandardInput.Write($InputText)
+    $InputBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($InputText)
+    $Process.StandardInput.BaseStream.Write($InputBytes, 0, $InputBytes.Length)
+    $Process.StandardInput.BaseStream.Flush()
   }
   $Process.StandardInput.Close()
   $Stdout = $Process.StandardOutput.ReadToEnd()
