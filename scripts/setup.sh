@@ -204,8 +204,100 @@ validate_image2_config_headers() {
     function array_table_header(line) {
       return line ~ /^[[:space:]]*\[\[[^][]+\]\][[:space:]]*(#.*)?$/
     }
+    function skip_spaces(text, pos) {
+      while (pos <= length(text) && substr(text, pos, 1) ~ /[[:space:]]/) pos++
+      return pos
+    }
+    function hex_value(char) {
+      if (char >= "0" && char <= "9") return char + 0
+      if (char >= "a" && char <= "f") return index("abcdef", char) + 9
+      if (char >= "A" && char <= "F") return index("ABCDEF", char) + 9
+      return -1
+    }
+    function decode_hex(text, digits, pos, value, digit_index, digit) {
+      if (length(text) != digits) return -1
+      value = 0
+      for (digit_index = 1; digit_index <= digits; digit_index++) {
+        digit = hex_value(substr(text, digit_index, 1))
+        if (digit < 0) return -1
+        value = value * 16 + digit
+      }
+      return value
+    }
+    function parse_key_segment(text, start, pos, char, value, escape, digits, code) {
+      parsed_ok = 0
+      pos = skip_spaces(text, start)
+      char = substr(text, pos, 1)
+      value = ""
+      if (char == "\"") {
+        pos++
+        while (pos <= length(text)) {
+          char = substr(text, pos, 1)
+          if (char == "\"") {
+            parsed_value = value
+            parsed_pos = pos + 1
+            parsed_ok = 1
+            return
+          }
+          if (char != "\\") {
+            value = value char
+            pos++
+            continue
+          }
+          pos++
+          escape = substr(text, pos, 1)
+          if (escape == "u" || escape == "U") {
+            digits = escape == "u" ? 4 : 8
+            code = decode_hex(substr(text, pos + 1, digits), digits)
+            if (code < 0) return
+            value = value (code <= 127 ? sprintf("%c", code) : "?")
+            pos += digits + 1
+            continue
+          }
+          if (escape == "b") value = value sprintf("%c", 8)
+          else if (escape == "t") value = value sprintf("%c", 9)
+          else if (escape == "n") value = value sprintf("%c", 10)
+          else if (escape == "f") value = value sprintf("%c", 12)
+          else if (escape == "r") value = value sprintf("%c", 13)
+          else if (escape == "\"" || escape == "\\" || escape == "/") value = value escape
+          else return
+          pos++
+        }
+        return
+      }
+      if (char == sprintf("%c", 39)) {
+        pos++
+        while (pos <= length(text) && substr(text, pos, 1) != sprintf("%c", 39)) {
+          value = value substr(text, pos, 1)
+          pos++
+        }
+        if (substr(text, pos, 1) != sprintf("%c", 39)) return
+        parsed_value = value
+        parsed_pos = pos + 1
+        parsed_ok = 1
+        return
+      }
+      while (pos <= length(text) && substr(text, pos, 1) ~ /[A-Za-z0-9_-]/) {
+        value = value substr(text, pos, 1)
+        pos++
+      }
+      if (value == "") return
+      parsed_value = value
+      parsed_pos = pos
+      parsed_ok = 1
+    }
     function image2_namespace_header(line) {
-      return line ~ /^[[:space:]]*\[\[?[[:space:]]*("mcp_servers"|mcp_servers)[[:space:]]*\.[[:space:]]*("image2"|image2)[[:space:]]*(\.|\])/
+      key_text = line
+      sub(/^[[:space:]]*\[\[?/, "", key_text)
+      if (line ~ /^[[:space:]]*\[\[/) sub(/\]\][[:space:]]*(#.*)?$/, "", key_text)
+      else sub(/\][[:space:]]*(#.*)?$/, "", key_text)
+      parse_key_segment(key_text, 1)
+      if (!parsed_ok) return 0
+      first_key = parsed_value
+      next_pos = skip_spaces(key_text, parsed_pos)
+      if (substr(key_text, next_pos, 1) != ".") return 0
+      parse_key_segment(key_text, next_pos + 1)
+      return parsed_ok && first_key == "mcp_servers" && parsed_value == "image2"
     }
     (table_header($0) || array_table_header($0)) && image2_namespace_header($0) && !image2_header($0) { exit 1 }
   ' "$input"

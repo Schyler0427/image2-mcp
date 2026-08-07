@@ -174,14 +174,46 @@ mkdir -p "$quoted_image20_home/.codex"
 cat > "$quoted_image20_home/.codex/config.toml" <<'TOML'
 model = "gpt-5"
 
-["mcp_servers"."image20"]
+["mcp_servers"."image\u00320"]
 command = "/keep/quoted-image20-runner"
 TOML
 printf '%s\n' "$secret" | HOME="$quoted_image20_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/quoted-image20.log" 2>&1
 assert_contains "$tmp/quoted-image20.log" 'Verification: OK'
-assert_contains "$quoted_image20_home/.codex/config.toml" '["mcp_servers"."image20"]'
+assert_contains "$quoted_image20_home/.codex/config.toml" '["mcp_servers"."image\u00320"]'
 assert_contains "$quoted_image20_home/.codex/config.toml" '/keep/quoted-image20-runner'
+
+literal_quoted_home="$tmp/literal-quoted-home"
+mkdir -p "$literal_quoted_home/.codex"
+cat > "$literal_quoted_home/.codex/config.toml" <<'TOML'
+model = "gpt-5"
+
+['mcp_servers'.'image2']
+command = "/literal/old-runner"
+TOML
+literal_quoted_before="$(cksum "$literal_quoted_home/.codex/config.toml")"
+if printf '%s\n' "$secret" | HOME="$literal_quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/literal-quoted.log" 2>&1; then
+  fail 'literal quoted Image2 config unexpectedly succeeded'
+fi
+assert_contains "$tmp/literal-quoted.log" 'unsupported Image2 TOML table header'
+[[ "$(cksum "$literal_quoted_home/.codex/config.toml")" == "$literal_quoted_before" ]] || fail 'literal quoted Image2 config changed'
+
+escaped_quoted_home="$tmp/escaped-quoted-home"
+mkdir -p "$escaped_quoted_home/.codex"
+cat > "$escaped_quoted_home/.codex/config.toml" <<'TOML'
+model = "gpt-5"
+
+["mcp_servers"."image\u0032"]
+command = "/escaped/old-runner"
+TOML
+escaped_quoted_before="$(cksum "$escaped_quoted_home/.codex/config.toml")"
+if printf '%s\n' "$secret" | HOME="$escaped_quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/escaped-quoted.log" 2>&1; then
+  fail 'escaped quoted Image2 config unexpectedly succeeded'
+fi
+assert_contains "$tmp/escaped-quoted.log" 'unsupported Image2 TOML table header'
+[[ "$(cksum "$escaped_quoted_home/.codex/config.toml")" == "$escaped_quoted_before" ]] || fail 'escaped quoted Image2 config changed'
 
 before="$(cksum "$repo/.env.local")"
 if printf '   \n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
