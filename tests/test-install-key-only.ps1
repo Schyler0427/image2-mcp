@@ -144,7 +144,10 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($StoredKeyLine.Count -eq 1) "stored dotenv key line count is not one"
   $StoredKeyMatch = [regex]::Match($StoredKeyLine[0], '^OPENAI_IMAGE_API_KEY=(.*)$')
   Assert-True ($StoredKeyMatch.Success) "stored dotenv key line is malformed"
-  $DecodedStoredKey = ConvertFrom-DotEnvValue ($StoredKeyMatch.Groups[1].Value)
+  $RawStoredKey = $StoredKeyMatch.Groups[1].Value
+  $ExpectedStoredKey = ConvertTo-DotEnvValue $ExpectedSecret
+  Assert-True ($RawStoredKey.Trim() -ceq $ExpectedStoredKey) "stored dotenv encoding differs from codec output"
+  $DecodedStoredKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
   Assert-True ($DecodedStoredKey -cne "old-key-must-be-ignored") "installer stored the ambient API Key"
   Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`r")) "stored API Key retained a carriage return"
   Assert-True ($DecodedStoredKey -cne ($ExpectedSecret + "`n")) "stored API Key retained a line feed"
