@@ -150,6 +150,39 @@ fi
 assert_contains "$tmp/array-header.log" 'unsupported Image2 TOML table header'
 [[ "$(cksum "$array_home/.codex/config.toml")" == "$array_before" ]] || fail 'array-of-tables Image2 config changed'
 
+quoted_home="$tmp/quoted-home"
+mkdir -p "$quoted_home/.codex"
+cat > "$quoted_home/.codex/config.toml" <<'TOML'
+model = "gpt-5"
+
+["mcp_servers"."image2"]
+command = "/quoted/old-runner"
+
+["mcp_servers"."image2"."env"]
+OLD = "quoted value"
+TOML
+quoted_before="$(cksum "$quoted_home/.codex/config.toml")"
+if printf '%s\n' "$secret" | HOME="$quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/quoted-header.log" 2>&1; then
+  fail 'quoted Image2 config unexpectedly succeeded'
+fi
+assert_contains "$tmp/quoted-header.log" 'unsupported Image2 TOML table header'
+[[ "$(cksum "$quoted_home/.codex/config.toml")" == "$quoted_before" ]] || fail 'quoted Image2 config changed'
+
+quoted_image20_home="$tmp/quoted-image20-home"
+mkdir -p "$quoted_image20_home/.codex"
+cat > "$quoted_image20_home/.codex/config.toml" <<'TOML'
+model = "gpt-5"
+
+["mcp_servers"."image20"]
+command = "/keep/quoted-image20-runner"
+TOML
+printf '%s\n' "$secret" | HOME="$quoted_image20_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/quoted-image20.log" 2>&1
+assert_contains "$tmp/quoted-image20.log" 'Verification: OK'
+assert_contains "$quoted_image20_home/.codex/config.toml" '["mcp_servers"."image20"]'
+assert_contains "$quoted_image20_home/.codex/config.toml" '/keep/quoted-image20-runner'
+
 before="$(cksum "$repo/.env.local")"
 if printf '   \n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/blank.log" 2>&1; then

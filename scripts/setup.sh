@@ -204,7 +204,10 @@ validate_image2_config_headers() {
     function array_table_header(line) {
       return line ~ /^[[:space:]]*\[\[[^][]+\]\][[:space:]]*(#.*)?$/
     }
-    (table_header($0) || array_table_header($0)) && $0 ~ /mcp_servers[[:space:]]*\.[[:space:]]*image2([[:space:]]*\.|[[:space:]]*\])/ && !image2_header($0) { exit 1 }
+    function image2_namespace_header(line) {
+      return line ~ /^[[:space:]]*\[\[?[[:space:]]*("mcp_servers"|mcp_servers)[[:space:]]*\.[[:space:]]*("image2"|image2)[[:space:]]*(\.|\])/
+    }
+    (table_header($0) || array_table_header($0)) && image2_namespace_header($0) && !image2_header($0) { exit 1 }
   ' "$input"
 }
 
