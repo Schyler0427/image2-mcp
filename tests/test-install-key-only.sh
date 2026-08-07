@@ -56,6 +56,23 @@ OLD = "value"
 command = "/keep/runner"
 TOML
 
+help_config_before="$(cksum "$home/.codex/config.toml")"
+help_output="$tmp/help.log"
+HOME="$home" "$repo/install.sh" --help </dev/null >"$help_output" 2>&1 || fail '--help unexpectedly failed'
+assert_contains "$help_output" 'Usage: ./install.sh [options]'
+assert_not_contains "$help_output" 'Downloading prebuilt binary'
+[[ "$(cksum "$home/.codex/config.toml")" == "$help_config_before" ]] || fail '--help changed Codex config'
+[[ ! -e "$repo/.env.local" ]] || fail '--help wrote .env.local'
+[[ ! -e "$repo/dist" ]] || fail '--help created dist'
+
+key_help_output="$tmp/key-help.log"
+HOME="$home" "$repo/install.sh" --key-only --help </dev/null >"$key_help_output" 2>&1 || fail '--key-only --help unexpectedly failed'
+assert_contains "$key_help_output" 'Usage: ./install.sh [options]'
+assert_not_contains "$key_help_output" 'OPENAI_IMAGE_API_KEY:'
+[[ "$(cksum "$home/.codex/config.toml")" == "$help_config_before" ]] || fail '--key-only --help changed Codex config'
+[[ ! -e "$repo/.env.local" ]] || fail '--key-only --help wrote .env.local'
+[[ ! -e "$repo/dist" ]] || fail '--key-only --help created dist'
+
 secret='sk-test-do-not-print'
 output="$tmp/output.log"
 printf '%s\nignored-second-line\n' "$secret" |
@@ -89,6 +106,22 @@ if printf '%s\n' "$secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_
   fail 'failed prebuilt download unexpectedly succeeded'
 fi
 [[ "$(cksum "$repo/dist/image2-mcp")" == "$before" ]] || fail 'failed download changed existing binary'
+
+array_home="$tmp/array-home"
+mkdir -p "$array_home/.codex"
+cat > "$array_home/.codex/config.toml" <<'TOML'
+model = "gpt-5"
+
+[[mcp_servers.image2]]
+command = "/ambiguous/runner"
+TOML
+array_before="$(cksum "$array_home/.codex/config.toml")"
+if printf '%s\n' "$secret" | HOME="$array_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/array-header.log" 2>&1; then
+  fail 'array-of-tables Image2 config unexpectedly succeeded'
+fi
+assert_contains "$tmp/array-header.log" 'unsupported Image2 TOML table header'
+[[ "$(cksum "$array_home/.codex/config.toml")" == "$array_before" ]] || fail 'array-of-tables Image2 config changed'
 
 before="$(cksum "$repo/.env.local")"
 if printf '   \n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \

@@ -15,6 +15,7 @@ key_only=0
 key_only_api_key=''
 key_input_echo_disabled=0
 key_only_behavior_flags=()
+help_requested=0
 
 usage() {
   cat <<'EOF'
@@ -200,7 +201,10 @@ validate_image2_config_headers() {
     function table_header(line) {
       return line ~ /^[[:space:]]*\[[^][]+\][[:space:]]*(#.*)?$/
     }
-    table_header($0) && $0 ~ /mcp_servers\.image2/ && !image2_header($0) { exit 1 }
+    function array_table_header(line) {
+      return line ~ /^[[:space:]]*\[\[[^][]+\]\][[:space:]]*(#.*)?$/
+    }
+    (table_header($0) || array_table_header($0)) && $0 ~ /mcp_servers\.image2/ && !image2_header($0) { exit 1 }
   ' "$input"
 }
 
@@ -331,6 +335,7 @@ parse_args() {
         ;;
       -h|--help)
         usage
+        help_requested=1
         return 0
         ;;
       *)
@@ -481,7 +486,10 @@ run_install() {
 }
 
 main() {
-  parse_args "$@"
+  parse_args "$@" || return $?
+  if [[ "$help_requested" -eq 1 ]]; then
+    return 0
+  fi
   apply_mode_defaults
   run_install
 }
