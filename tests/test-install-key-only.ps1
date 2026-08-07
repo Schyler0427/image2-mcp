@@ -177,7 +177,19 @@ command = "C:\keep\image20-runner.exe"
     }
     throw "FAIL: stored API Key contains $PrefixCategory"
   }
-  Assert-True ($RawStoredKey.Trim().Length -eq $ExpectedStoredKey.Length) "stored dotenv value length differs from codec output"
+  if ($RawStoredKey.Trim().Length -ne $ExpectedStoredKey.Length) {
+    $BomCount = @($StructuralDecodedKey.ToCharArray() | Where-Object { $_ -eq [char]0xFEFF }).Count
+    $NulCount = @($StructuralDecodedKey.ToCharArray() | Where-Object { $_ -eq [char]0 }).Count
+    $SharedLength = [Math]::Min($StructuralDecodedKey.Length, $ExpectedSecret.Length)
+    $FirstMismatch = $SharedLength
+    for ($Index = 0; $Index -lt $SharedLength; $Index++) {
+      if ($StructuralDecodedKey[$Index] -cne $ExpectedSecret[$Index]) {
+        $FirstMismatch = $Index
+        break
+      }
+    }
+    throw "FAIL: stored dotenv length expected $($ExpectedStoredKey.Length), actual $($RawStoredKey.Trim().Length); decoded expected $($ExpectedSecret.Length), actual $($StructuralDecodedKey.Length); BOM $BomCount; NUL $NulCount; first mismatch $FirstMismatch"
+  }
   Assert-True ($RawStoredKey.Trim().Substring(1, $RawStoredKey.Trim().Length - 2) -ceq $ExpectedSecret) "stored dotenv payload differs from input"
   Assert-True ($RawStoredKey.Trim() -ceq $ExpectedStoredKey) "stored dotenv encoding differs from codec output"
   $DecodedStoredKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
