@@ -160,6 +160,10 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($StoredKeyMatch.Success) "stored dotenv key line is malformed"
   $RawStoredKey = $StoredKeyMatch.Groups[1].Value
   $ExpectedStoredKey = ConvertTo-DotEnvValue $ExpectedSecret
+  Assert-True ($RawStoredKey.Trim().StartsWith('"')) "stored dotenv value is missing its opening quote"
+  Assert-True ($RawStoredKey.Trim().EndsWith('"')) "stored dotenv value is missing its closing quote"
+  Assert-True ($RawStoredKey.Trim().Length -eq $ExpectedStoredKey.Length) "stored dotenv value length differs from codec output"
+  Assert-True ($RawStoredKey.Trim().Substring(1, $RawStoredKey.Trim().Length - 2) -ceq $ExpectedSecret) "stored dotenv payload differs from input"
   Assert-True ($RawStoredKey.Trim() -ceq $ExpectedStoredKey) "stored dotenv encoding differs from codec output"
   $DecodedStoredKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
   Assert-True ($DecodedStoredKey -cne "old-key-must-be-ignored") "installer stored the ambient API Key"
