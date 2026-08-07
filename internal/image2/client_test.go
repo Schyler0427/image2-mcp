@@ -326,9 +326,10 @@ func TestEditRejectsMissingImageFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	missingImagePath := filepath.Join(t.TempDir(), "missing.png")
 	_, err = client.Edit(context.Background(), EditRequest{
 		Prompt:     "hello",
-		ImagePaths: []string{"/no/such/file.png"},
+		ImagePaths: []string{missingImagePath},
 	})
 	if err == nil || !strings.Contains(err.Error(), "image file not found") {
 		t.Fatalf("err = %v, want image file not found", err)
