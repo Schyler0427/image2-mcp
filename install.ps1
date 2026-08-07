@@ -412,7 +412,7 @@ function Set-Image2CodexConfig([string]$ConfigFile) {
   try {
     [IO.File]::WriteAllLines($Temp, $Output, $Encoding)
     $Generated = [IO.File]::ReadAllText($Temp)
-    if (([regex]::Matches($Generated, '(?m)^\[mcp_servers\.image2\]$')).Count -ne 1) {
+    if (([regex]::Matches($Generated, '(?m)^\[mcp_servers\.image2\]\r?$')).Count -ne 1) {
       throw "generated Codex config does not contain exactly one Image2 root table"
     }
     if ($Generated.Contains("OPENAI_IMAGE_API_KEY")) {
@@ -481,7 +481,7 @@ function Test-KeyOnlyInstall {
     throw "environment verification failed"
   }
   $ConfigText = [IO.File]::ReadAllText($Config)
-  if (([regex]::Matches($ConfigText, '(?m)^\[mcp_servers\.image2\]$')).Count -ne 1) {
+  if (([regex]::Matches($ConfigText, '(?m)^\[mcp_servers\.image2\]\r?$')).Count -ne 1) {
     throw "Codex config verification failed"
   }
   $ExpectedRunner = ConvertTo-TomlBasicString $Runner
