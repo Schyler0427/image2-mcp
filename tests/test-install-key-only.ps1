@@ -177,8 +177,11 @@ command = "C:\keep\image20-runner.exe"
     $PrefixCodeUnits = @(($StructuralDecodedKey.Substring(0, $PrefixLength)).ToCharArray() | ForEach-Object { [int]$_ })
     $PrefixCategory = switch ($PrefixCodeUnits -join ",") {
       "239,187,191" { "UTF-8 BOM decoded as Windows-1252"; break }
+      "239,187,191,239,187,191" { "two UTF-8 BOMs decoded as Windows-1252"; break }
       "8745,9559,9488" { "UTF-8 BOM decoded as OEM 437"; break }
+      "8745,9559,9488,8745,9559,9488" { "two UTF-8 BOMs decoded as OEM 437"; break }
       "180,9559,9488" { "UTF-8 BOM decoded as OEM 850"; break }
+      "180,9559,9488,180,9559,9488" { "two UTF-8 BOMs decoded as OEM 850"; break }
       default { "unclassified $PrefixLength-code-unit prefix" }
     }
     throw "FAIL: stored API Key contains $PrefixCategory"
