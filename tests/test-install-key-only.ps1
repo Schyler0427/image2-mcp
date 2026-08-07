@@ -106,6 +106,7 @@ command = "C:\keep\image20-runner.exe"
   $Secret = 'sk-test-do-not-print'
   $Result = Invoke-TestInstaller @("-KeyOnly") ($Secret + "`r`nignored-second-line`r`n")
   Assert-True ($Result.ExitCode -eq 0) "Key-only install failed: $($Result.Output)"
+  Assert-True ($Result.Output.Contains("Test input mode: redirected")) "key-only installer did not use redirected input"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
   Assert-True (-not $Result.Output.Contains($Secret)) "API Key leaked to output"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"

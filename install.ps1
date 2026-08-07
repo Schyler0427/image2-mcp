@@ -169,7 +169,11 @@ function Write-KeyOnlyEnvironment {
 }
 
 function Read-KeyOnce {
-  if ([Console]::IsInputRedirected) {
+  $InputIsRedirected = [Console]::IsInputRedirected
+  if ($env:IMAGE2_MCP_TEST_RELEASE_ZIP) {
+    Write-Host "==> Test input mode: $(if ($InputIsRedirected) { 'redirected' } else { 'interactive' })"
+  }
+  if ($InputIsRedirected) {
     Write-Host -NoNewline "OPENAI_IMAGE_API_KEY: "
     $Value = [Console]::In.ReadLine()
     Write-Host ""
