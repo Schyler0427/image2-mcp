@@ -1,0 +1,42 @@
+name: Task 2 Windows Verification
+
+on:
+  push:
+    branches:
+      - codex/agent-key-only-install
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Parse PowerShell scripts
+        shell: powershell
+        run: |
+          $files = @('.\install.ps1', '.\scripts\run-image2-mcp.ps1', '.\tests\test-install-key-only.ps1')
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors)
+            if ($errors.Count) {
+              $errors
+              exit 1
+            }
+          }
+
+      - name: Test PowerShell key-only installer
+        shell: powershell
+        run: .\tests\test-install-key-only.ps1
+
+      - name: Test Go packages
+        shell: powershell
+        run: go test ./...
