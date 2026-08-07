@@ -174,6 +174,23 @@ command = "C:\keep\image20-runner.exe"
   Import-DotEnv $EnvFile
   Assert-True ($env:OPENAI_IMAGE_BASE_URL -eq "https://api.schyler.top") "stored base URL is not fixed"
   Assert-True ($env:OPENAI_IMAGE_API_KEY -eq $Secret) "stored API Key did not round-trip"
+
+  $SecretText = "sk-test-pipeline-first-line"
+  $PipelineOutput = @($SecretText, "ignored-second-line") |
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:Installer -KeyOnly 2>&1 |
+    Out-String
+  $PipelineExitCode = $LASTEXITCODE
+  Assert-True ($PipelineExitCode -eq 0) "pipeline key-only install failed"
+  Assert-True ($PipelineOutput.Contains("Verification: OK")) "pipeline verification marker missing"
+  Assert-True (-not $PipelineOutput.Contains($SecretText)) "pipeline API Key leaked to output"
+  $PipelineKeyLine = @(Get-Content $EnvFile | Where-Object { $_.StartsWith("OPENAI_IMAGE_API_KEY=") })
+  Assert-True ($PipelineKeyLine.Count -eq 1) "pipeline stored dotenv key line count is not one"
+  $PipelineKeyMatch = [regex]::Match($PipelineKeyLine[0], '^OPENAI_IMAGE_API_KEY=(.*)$')
+  Assert-True ($PipelineKeyMatch.Success) "pipeline stored dotenv key line is malformed"
+  $PipelineDecodedKey = ConvertFrom-DotEnvValue ($PipelineKeyMatch.Groups[1].Value.Trim())
+  Assert-True ($PipelineDecodedKey -ceq $SecretText) "pipeline stored API Key did not exactly match the first input line"
+  Assert-True ($PipelineDecodedKey -cne ($SecretText + "`r`nignored-second-line")) "pipeline stored API Key consumed more than one input line"
+
   Assert-True ((Get-ArchName "AMD64") -eq "amd64") "AMD64 mapping failed"
   Assert-True ((Get-ArchName "ARM64") -eq "arm64") "ARM64 mapping failed"
   $Unsupported = $false
