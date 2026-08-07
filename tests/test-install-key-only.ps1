@@ -157,6 +157,8 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($RawStoredKey.Trim().EndsWith('"')) "stored dotenv value is missing its closing quote"
   $StructuralDecodedKey = ConvertFrom-DotEnvValue ($RawStoredKey.Trim())
   Assert-True ($StructuralDecodedKey -cne ($ExpectedSecret + "`r`nignored-second-line`r`n")) "stored API Key consumed the complete redirected input"
+  Assert-True ($StructuralDecodedKey -cne $ExpectedSecret.Substring(1)) "stored API Key lost its first character"
+  Assert-True ($StructuralDecodedKey -cne $ExpectedSecret.Substring(0, $ExpectedSecret.Length - 1)) "stored API Key lost its last character"
   $LeadingBomCount = 0
   while ($LeadingBomCount -lt $StructuralDecodedKey.Length -and $StructuralDecodedKey[$LeadingBomCount] -eq [char]0xFEFF) {
     $LeadingBomCount++
