@@ -172,7 +172,17 @@ command = "C:\keep\image20-runner.exe"
   }
   Assert-True ($LeadingBomCount -eq 0) "stored API Key contains $LeadingBomCount redirected-input BOM characters"
   Assert-True (-not ($StructuralDecodedKey.StartsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length)) "stored API Key contains an extra suffix"
-  Assert-True (-not ($StructuralDecodedKey.EndsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length)) "stored API Key contains an extra prefix"
+  if ($StructuralDecodedKey.EndsWith($ExpectedSecret) -and $StructuralDecodedKey.Length -gt $ExpectedSecret.Length) {
+    $PrefixLength = $StructuralDecodedKey.Length - $ExpectedSecret.Length
+    $PrefixCodeUnits = @(($StructuralDecodedKey.Substring(0, $PrefixLength)).ToCharArray() | ForEach-Object { [int]$_ })
+    $PrefixCategory = switch ($PrefixCodeUnits -join ",") {
+      "239,187,191" { "UTF-8 BOM decoded as Windows-1252"; break }
+      "8745,9559,9488" { "UTF-8 BOM decoded as OEM 437"; break }
+      "180,9559,9488" { "UTF-8 BOM decoded as OEM 850"; break }
+      default { "unclassified $PrefixLength-code-unit prefix" }
+    }
+    throw "FAIL: stored API Key contains $PrefixCategory"
+  }
   Assert-True ($RawStoredKey.Trim().Length -eq $ExpectedStoredKey.Length) "stored dotenv value length differs from codec output"
   Assert-True ($RawStoredKey.Trim().Substring(1, $RawStoredKey.Trim().Length - 2) -ceq $ExpectedSecret) "stored dotenv payload differs from input"
   Assert-True ($RawStoredKey.Trim() -ceq $ExpectedStoredKey) "stored dotenv encoding differs from codec output"
