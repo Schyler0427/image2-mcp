@@ -110,7 +110,7 @@ function Import-DotEnv([string]$Path) {
       continue
     }
     $Name = $Parts[0].Trim()
-    $Value = ConvertFrom-DotEnvValue $Parts[1].Trim()
+    $Value = ConvertFrom-DotEnvValue ($Parts[1].Trim())
     [Environment]::SetEnvironmentVariable($Name, $Value, "Process")
   }
 }
