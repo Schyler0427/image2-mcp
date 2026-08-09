@@ -14,6 +14,7 @@ force_config=0
 key_only=0
 key_only_api_key=''
 key_input_echo_disabled=0
+key_input_file=''
 key_only_behavior_flags=()
 help_requested=0
 
@@ -144,21 +145,57 @@ restore_terminal_echo() {
   fi
 }
 
+cleanup_key_input() {
+  restore_terminal_echo
+  if [[ -n "${key_input_file:-}" ]]; then
+    rm -f -- "$key_input_file"
+    key_input_file=''
+  fi
+}
+
+raw_line_contains_nul() {
+  LC_ALL=C od -An -tx1 "$1" | awk '
+    {
+      for (field = 1; field <= NF; field++) {
+        if ($field == "00") found = 1
+      }
+    }
+    END { exit found ? 0 : 1 }
+  '
+}
+
 read_key_once() {
   local value
+  key_input_file="$(mktemp "${TMPDIR:-/tmp}/image2-mcp-key.XXXXXX")"
+  chmod 600 "$key_input_file"
+  trap cleanup_key_input EXIT HUP INT TERM
   printf 'OPENAI_IMAGE_API_KEY: ' >&2
   if [[ -t 0 ]]; then
-    trap restore_terminal_echo EXIT HUP INT TERM
     stty -echo
     key_input_echo_disabled=1
   fi
-  IFS= read -r value || {
-    restore_terminal_echo
+  if ! head -n 1 >"$key_input_file"; then
+    cleanup_key_input
+    trap - EXIT HUP INT TERM
     printf '\nerror: API Key input was not received\n' >&2
     return 1
-  }
+  fi
   restore_terminal_echo
   printf '\n' >&2
+  if raw_line_contains_nul "$key_input_file"; then
+    cleanup_key_input
+    trap - EXIT HUP INT TERM
+    echo 'error: API Key must be one line and cannot contain NUL' >&2
+    return 1
+  fi
+  if ! IFS= read -r value <"$key_input_file"; then
+    cleanup_key_input
+    trap - EXIT HUP INT TERM
+    echo 'error: API Key input was not received' >&2
+    return 1
+  fi
+  cleanup_key_input
+  trap - EXIT HUP INT TERM
   [[ "$value" == *$'\r'* ]] && { echo 'error: API Key must be one line' >&2; return 1; }
   [[ "$value" =~ [^[:space:]] ]] || { echo 'error: API Key cannot be blank' >&2; return 1; }
   key_only_api_key="$value"
@@ -185,8 +222,11 @@ remove_image2_config_namespace() {
     function table_header(line) {
       return line ~ /^[[:space:]]*\[[^][]+\][[:space:]]*(#.*)?$/
     }
+    function array_table_header(line) {
+      return line ~ /^[[:space:]]*\[\[[^][]+\]\][[:space:]]*(#.*)?$/
+    }
     {
-      if (table_header($0)) skip = image2_header($0)
+      if (table_header($0) || array_table_header($0)) skip = image2_header($0)
       if (!skip) print
     }
   ' "$input" >"$output"

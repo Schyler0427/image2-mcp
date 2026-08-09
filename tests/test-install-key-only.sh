@@ -9,6 +9,10 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 assert_contains() { grep -Fq "$2" "$1" || fail "$1 does not contain $2"; }
 assert_not_contains() { ! grep -Fq "$2" "$1" || fail "$1 contains secret text"; }
 
+if grep -Fq 'IMAGE2_MCP_TEST_RELEASE_ZIP' "$root/install.ps1"; then
+  fail 'production PowerShell installer contains a local Release override'
+fi
+
 home="$tmp/home"
 repo="$tmp/repo"
 fakebin="$tmp/bin"
@@ -49,6 +53,10 @@ model = "gpt-5"
 [mcp_servers.image2]
 command = "/old/runner"
 
+[[profiles]]
+name = "keep-array"
+command = "/keep/array-runner"
+
 [mcp_servers.image2.env]
 OLD = "value"
 
@@ -88,6 +96,9 @@ assert_not_contains "$output" "$secret"
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top'
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_API_KEY='
 assert_contains "$home/.codex/config.toml" 'model = "gpt-5"'
+assert_contains "$home/.codex/config.toml" '[[profiles]]'
+assert_contains "$home/.codex/config.toml" 'name = "keep-array"'
+assert_contains "$home/.codex/config.toml" '/keep/array-runner'
 assert_contains "$home/.codex/config.toml" '[mcp_servers.keep]'
 assert_contains "$home/.codex/config.toml" '[mcp_servers.image20]'
 assert_contains "$home/.codex/config.toml" '/keep/image20-runner'
@@ -214,6 +225,21 @@ if printf '%s\n' "$secret" | HOME="$escaped_quoted_home" PATH="$fakebin:$PATH" I
 fi
 assert_contains "$tmp/escaped-quoted.log" 'unsupported Image2 TOML table header'
 [[ "$(cksum "$escaped_quoted_home/.codex/config.toml")" == "$escaped_quoted_before" ]] || fail 'escaped quoted Image2 config changed'
+
+nul_env_before="$(cksum "$repo/.env.local")"
+nul_binary_before="$(cksum "$repo/dist/image2-mcp")"
+nul_config_before="$(cksum "$home/.codex/config.toml")"
+if printf 'nul-prefix\0nul-suffix\nignored-second-line\n' |
+  HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/nul.log" 2>&1; then
+  fail 'NUL-containing API Key unexpectedly succeeded'
+fi
+assert_contains "$tmp/nul.log" 'API Key must be one line and cannot contain NUL'
+assert_not_contains "$tmp/nul.log" 'nul-prefix'
+assert_not_contains "$tmp/nul.log" 'nul-suffix'
+[[ "$(cksum "$repo/.env.local")" == "$nul_env_before" ]] || fail 'NUL input changed .env.local'
+[[ "$(cksum "$repo/dist/image2-mcp")" == "$nul_binary_before" ]] || fail 'NUL input changed binary'
+[[ "$(cksum "$home/.codex/config.toml")" == "$nul_config_before" ]] || fail 'NUL input changed Codex config'
 
 before="$(cksum "$repo/.env.local")"
 if printf '   \n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \

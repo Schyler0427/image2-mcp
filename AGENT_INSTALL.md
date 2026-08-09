@@ -70,41 +70,83 @@ different remote and a non-Git target with a missing or different marker are
 unrecognized; leave them unchanged. When writing a marker, write exactly that
 slug and no newline.
 
+Handle the two accepted target types differently. Never move, replace, reset, clean, or delete an existing Git target. For an exact-remote Git target, first
+run `git -C TARGET status --porcelain=v1 --untracked-files=all`. If it prints
+anything, stop before fetching or running the installer and leave the target
+unchanged. Otherwise run `git -C TARGET fetch origin main`, followed by
+`git -C TARGET merge --ff-only FETCH_HEAD`. A failed fast-forward is a hard
+failure and must not be followed by reset, checkout, clean, or a staged-tree
+swap. This procedure preserves clean local commits when they are already ahead
+of the fetched commit and refuses divergent history without changing HEAD,
+the index, or the worktree. Ignored customer files also remain in place because
+the Git target is never cleaned or swapped.
+
+## Archive ownership manifest
+
+An archive-based target has no Git index, so `.image2-mcp-managed` establishes
+identity while `.image2-mcp-source-manifest` establishes source ownership. The
+manifest must deterministically record every repository-owned relative path in
+the validated source archive, including its path type and, for each regular
+file, its SHA-256 digest; symlink targets must be recorded without following
+them. Generate the new manifest from the staged source before adding either
+bootstrap metadata file. Store it as UTF-8 without a byte-order mark, using
+sorted `/`-separated relative paths. A missing, malformed, duplicate, absolute,
+or parent-traversing manifest path is a hard failure.
+
+Before refreshing an exact-marker archive target, require its prior manifest
+and compare every recorded path, type, digest, and symlink target with the
+current target. Any mismatch or missing path is a local source change: stop and
+leave the target unchanged. Every path not owned by the prior manifest, other
+than the two bootstrap metadata files, is customer-owned. Enumerate every
+customer-owned path, including hidden and ignored files, symlinks, and empty
+directories. If a customer-owned path has a file/type path collision with a
+repository-owned relative path in the new manifest, stop and leave the target
+unchanged.
+
+Only after all identity, manifest, local-change, and collision checks pass may
+the Agent move the old archive target to the sibling backup and move the staged
+source to the fixed target. Copy every customer-owned path from the backup into
+the replacement without following symlinks and without overwriting a new
+repository-owned path. This includes copying the prior `.env.local` from the backup into the replacement before prompting for the key, so it is staged before the installer performs its new atomic write.
+Copy the prior `output/` from the backup into the replacement and keep the backup untouched until successful verification. If any move, copy, or installer step fails, move the
+replacement aside and restore the complete old target from the untouched backup.
+Delete staging, failed replacement, and backup paths only after successful
+verification. A legacy marker-managed target without the ownership manifest
+cannot be refreshed safely and must be left unchanged.
+
 ## macOS and Linux bootstrap
 
 1. Complete the required release gate. Define the target as
    `$HOME/.local/share/image2-mcp`, create its parent, and create unique sibling
    staging and backup directories under that parent. If the target exists,
    apply the existing-target acceptance rules before changing it.
-2. When Git exists, run
+2. If the accepted target is Git-managed, perform the exact clean and
+   fast-forward procedure above in place, then skip to step 5. For a first
+   install when Git exists, run
    `git clone --depth 1 https://github.com/Schyler0427/image2-mcp.git STAGED_REPOSITORY`.
-   Without Git, require `curl` or `wget` and `tar`; download
+   For a first archive install, or an accepted marker-managed repeat install,
+   require `curl` or `wget` and `tar`; download
    `https://github.com/Schyler0427/image2-mcp/archive/refs/heads/main.tar.gz`
    with `curl -fL -sS URL -o ARCHIVE` or `wget -O ARCHIVE URL`, extract it with
    `tar -xzf ARCHIVE -C STAGING_PARENT`, and use the extracted
    `image2-mcp-main` directory as `STAGED_REPOSITORY`. If a downloader or
    extractor is unavailable, or extraction does not yield that directory, stop.
 3. Before moving anything, validate that `STAGED_REPOSITORY` contains
-   `install.sh`, `install.ps1`, `scripts/`, and `go.mod`. Write its marker with
+   `install.sh`, `install.ps1`, `scripts/`, and `go.mod`. For an archive, create
+   and validate the ownership manifest exactly as specified above, then write
+   its marker with
    `printf %s 'Schyler0427/image2-mcp' > STAGED_REPOSITORY/.image2-mcp-managed`.
    A bootstrap failure leaves an existing target unchanged.
-4. For a repeat install, move the complete accepted target to the sibling
-   backup, then move `STAGED_REPOSITORY` to the fixed target. Copy, never move,
-   the prior `.env.local` from the backup into the replacement before prompting
-   for the key, so it is staged before the installer performs its new atomic
-   key-only write. Copy the prior `output/` from the backup into the replacement
-   before prompting for the key. Leave the backup untouched until successful
-   verification, so it remains a complete rollback target. For a first install,
-   there is no prior content to copy.
+4. For an archive repeat install, execute the complete manifest comparison,
+   collision check, customer-path copy, swap, and rollback procedure above. For
+   a first install, move the validated staged repository to the fixed target.
 5. Start `./install.sh --key-only` from the fixed target. For an archive
    bootstrap, set `IMAGE2_MCP_REPO=Schyler0427/image2-mcp` only in this child
    installer process. Do not use any other installer mode or option.
-6. On bootstrap or installer failure, move the replacement to a failed sibling
-   directory and restore the complete old target from the untouched backup. This
-   restores the prior `.env.local` and `output/`. With no old target, leave no
-   partially installed target. Do not delete staging, failed, or backup
-   directories on failure. Delete temporary and backup directories only after
-   successful verification.
+6. On a first-install failure, leave no partially installed target and retain
+   diagnostics without exposing the key. On an archive repeat failure, use the
+   rollback procedure above. After success, delete all temporary bootstrap and
+   backup paths.
 
 ## Windows bootstrap
 
@@ -112,9 +154,12 @@ slug and no newline.
    `%LOCALAPPDATA%\image2-mcp`, create its parent, and create unique sibling
    staging and backup directories under that parent. If the target exists,
    apply the existing-target acceptance rules before changing it.
-2. When Git exists, run
+2. If the accepted target is Git-managed, perform the exact clean and
+   fast-forward procedure above in place, then skip to step 5. For a first
+   install when Git exists, run
    `git clone --depth 1 https://github.com/Schyler0427/image2-mcp.git STAGED_REPOSITORY`.
-   Without Git, download
+   For a first archive install, or an accepted marker-managed repeat install,
+   download
    `https://github.com/Schyler0427/image2-mcp/archive/refs/heads/main.zip`
    with `Invoke-WebRequest -Uri URL -OutFile ARCHIVE`, extract it with
    `Expand-Archive -LiteralPath ARCHIVE -DestinationPath STAGING_PARENT`, and
@@ -122,27 +167,21 @@ slug and no newline.
    when `Invoke-WebRequest` or `Expand-Archive` is unavailable, or extraction
    does not yield that directory.
 3. Before moving anything, validate that `STAGED_REPOSITORY` contains
-   `install.sh`, `install.ps1`, `scripts/`, and `go.mod`. Write
+   `install.sh`, `install.ps1`, `scripts/`, and `go.mod`. For an archive, create
+   and validate the ownership manifest exactly as specified above, then write
    `.image2-mcp-managed` as UTF-8 without a byte-order mark or newline, with
    only `Schyler0427/image2-mcp`. A bootstrap failure leaves an existing target
    unchanged.
-4. For a repeat install, move the complete accepted target to the sibling
-   backup, then move `STAGED_REPOSITORY` to the fixed target. Copy, never move,
-   the prior `.env.local` from the backup into the replacement before prompting
-   for the key, so it is staged before the installer performs its new atomic
-   key-only write. Copy the prior `output/` from the backup into the replacement
-   before prompting for the key. Leave the backup untouched until successful
-   verification, so it remains a complete rollback target. For a first install,
-   there is no prior content to copy.
+4. For an archive repeat install, execute the complete manifest comparison,
+   collision check, customer-path copy, swap, and rollback procedure above. For
+   a first install, move the validated staged repository to the fixed target.
 5. Start `.\install.ps1 -KeyOnly` from the fixed target. For an archive
    bootstrap, set `IMAGE2_MCP_REPO=Schyler0427/image2-mcp` only in this child
    installer process. Do not use any other installer mode or option.
-6. On bootstrap or installer failure, move the replacement to a failed sibling
-   directory and restore the complete old target from the untouched backup. This
-   restores the prior `.env.local` and `output/`. With no old target, leave no
-   partially installed target. Do not delete staging, failed, or backup
-   directories on failure. Delete temporary and backup directories only after
-   successful verification.
+6. On a first-install failure, leave no partially installed target and retain
+   diagnostics without exposing the key. On an archive repeat failure, use the
+   rollback procedure above. After success, delete all temporary bootstrap and
+   backup paths.
 
 ## Secret input
 

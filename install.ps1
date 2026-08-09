@@ -237,11 +237,7 @@ function Install-Prebuilt {
   New-Item -ItemType Directory -Force -Path $TempDir, $ExtractDir | Out-Null
   try {
     Write-Host "==> Downloading prebuilt binary: $Url"
-    if ($env:IMAGE2_MCP_TEST_RELEASE_ZIP) {
-      Copy-Item $env:IMAGE2_MCP_TEST_RELEASE_ZIP $ZipPath
-    } else {
-      Invoke-WebRequest -Uri $Url -OutFile $ZipPath
-    }
+    Invoke-WebRequest -Uri $Url -OutFile $ZipPath
     Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
     if (-not (Test-Path $StagedBinary) -or (Get-Item $StagedBinary).Length -eq 0) {
       throw "prebuilt archive does not contain a non-empty image2-mcp.exe"

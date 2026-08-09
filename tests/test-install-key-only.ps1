@@ -24,7 +24,7 @@ function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "")
     $Info = New-Object System.Diagnostics.ProcessStartInfo
     $Info.FileName = $env:ComSpec
     $Info.Arguments = '/d /s /c ""' + $PowerShell + '" -NoProfile -ExecutionPolicy Bypass -File "' + `
-      $script:Installer + '" ' + ($InstallerArgs -join ' ') + ' < "' + $InputFile + '""'
+      $script:Harness + '" ' + ($InstallerArgs -join ' ') + ' < "' + $InputFile + '""'
     $Info.UseShellExecute = $false
     $Info.RedirectStandardOutput = $true
     $Info.RedirectStandardError = $true
@@ -51,11 +51,12 @@ $Repo = Join-Path $TempRoot "repo"
 $Payload = Join-Path $TempRoot "payload"
 $Fixture = Join-Path $TempRoot "image2-mcp.zip"
 $script:Installer = Join-Path $Repo "install.ps1"
+$script:Harness = Join-Path $TempRoot "invoke-installer.ps1"
 $ConfigFile = Join-Path $TestHome ".codex\config.toml"
 $EnvFile = Join-Path $Repo ".env.local"
 
 $SavedEnvironment = @{}
-foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELEASE_ZIP", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_API_KEY")) {
+foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELEASE_ZIP", "IMAGE2_MCP_TEST_INSTALLER", "IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "IMAGE2_MCP_TEST_EXPECTED_API_KEY", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_API_KEY")) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
 
@@ -63,14 +64,46 @@ try {
   New-Item -ItemType Directory -Force -Path (Join-Path $TestHome ".codex"), (Join-Path $Repo "scripts"), $Payload | Out-Null
   Copy-Item (Join-Path $Root "install.ps1") $script:Installer
   Copy-Item (Join-Path $Root "scripts\run-image2-mcp.ps1") (Join-Path $Repo "scripts\run-image2-mcp.ps1")
-  Copy-Item $env:ComSpec (Join-Path $Payload "image2-mcp.exe")
+  $RunnerSource = @'
+using System;
+
+public static class Program {
+  public static int Main() {
+    bool baseUrlMatches = String.Equals(
+      Environment.GetEnvironmentVariable("OPENAI_IMAGE_BASE_URL"),
+      Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_BASE_URL"),
+      StringComparison.Ordinal);
+    bool apiKeyMatches = String.Equals(
+      Environment.GetEnvironmentVariable("OPENAI_IMAGE_API_KEY"),
+      Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY"),
+      StringComparison.Ordinal);
+    return baseUrlMatches && apiKeyMatches ? 0 : 29;
+  }
+}
+'@
+  Add-Type -TypeDefinition $RunnerSource -Language CSharp -OutputAssembly (Join-Path $Payload "image2-mcp.exe") -OutputType ConsoleApplication
   Compress-Archive -Path (Join-Path $Payload "image2-mcp.exe") -DestinationPath $Fixture
+  [IO.File]::WriteAllText($script:Harness, @'
+$ErrorActionPreference = "Stop"
+
+function Invoke-WebRequest {
+  param([string]$Uri, [string]$OutFile)
+  Copy-Item -LiteralPath $env:IMAGE2_MCP_TEST_RELEASE_ZIP -Destination $OutFile
+}
+
+. $env:IMAGE2_MCP_TEST_INSTALLER @args
+Invoke-Installer
+'@, (New-Object Text.UTF8Encoding($false)))
   Assert-InstallerParses
+  $ProductionInstallerText = [IO.File]::ReadAllText((Join-Path $Root "install.ps1"))
+  Assert-True (-not $ProductionInstallerText.Contains("IMAGE2_MCP_TEST_RELEASE_ZIP")) "production installer contains a local Release override"
 
   [Environment]::SetEnvironmentVariable("HOME", $TestHome, "Process")
   [Environment]::SetEnvironmentVariable("USERPROFILE", $TestHome, "Process")
   [Environment]::SetEnvironmentVariable("LOCALAPPDATA", (Join-Path $TestHome "AppData\Local"), "Process")
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", $Fixture, "Process")
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_INSTALLER", $script:Installer, "Process")
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "https://api.schyler.top", "Process")
   [Environment]::SetEnvironmentVariable("OPENAI_IMAGE_BASE_URL", "https://ignored.invalid", "Process")
   [Environment]::SetEnvironmentVariable("OPENAI_IMAGE_API_KEY", "old-key-must-be-ignored", "Process")
 
@@ -90,6 +123,10 @@ command = "C:\keep\runner.exe"
 command = "C:\keep\image20-runner.exe"
 '@
   [IO.File]::WriteAllText($ConfigFile, $InitialConfig, (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $Repo ".env"), @'
+OPENAI_IMAGE_BASE_URL="https://legacy.invalid"
+OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
+'@, (New-Object Text.UTF8Encoding($false)))
 
   $ConfigHash = (Get-FileHash $ConfigFile -Algorithm SHA256).Hash
   $Help = Invoke-TestInstaller -InstallerArgs @("-Help")
@@ -105,6 +142,7 @@ command = "C:\keep\image20-runner.exe"
   Assert-True (-not (Test-Path $EnvFile)) "-KeyOnly -Help wrote .env.local"
 
   $Secret = 'sk-test-do-not-print'
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY", $Secret, "Process")
   $Result = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`nignored-second-line`r`n")
   Assert-True ($Result.ExitCode -eq 0) "Key-only install failed: $($Result.Output)"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
@@ -112,6 +150,7 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"
   Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/latest/download/")) "Release repository is not fixed"
   Assert-True ($Result.Output.Contains("Base URL: https://api.schyler.top")) "reported base URL is not fixed"
+  Assert-True (-not $Result.Output.Contains("legacy-key-must-not-win")) "legacy API Key leaked to output"
 
   $Config = [IO.File]::ReadAllText($ConfigFile)
   Assert-True ($Config.Contains('model = "gpt-5"')) "top-level Codex config was removed"
@@ -176,8 +215,9 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($env:OPENAI_IMAGE_API_KEY -eq $Secret) "stored API Key did not round-trip"
 
   $SecretText = "sk-test-pipeline-first-line"
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY", $SecretText, "Process")
   $PipelineOutput = @($SecretText, "ignored-second-line") |
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:Installer -KeyOnly 2>&1 |
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:Harness -KeyOnly 2>&1 |
     Out-String
   $PipelineExitCode = $LASTEXITCODE
   Assert-True ($PipelineExitCode -eq 0) "pipeline key-only install failed"
@@ -213,6 +253,7 @@ command = "C:\keep\image20-runner.exe"
   Assert-True (((Get-FileHash $BinaryFile -Algorithm SHA256).Hash) -eq $BinaryHash) "failed download replaced working binary"
 
   $ArrayHome = Join-Path $TempRoot "array-home"
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY", $Secret, "Process")
   New-Item -ItemType Directory -Force -Path (Join-Path $ArrayHome ".codex") | Out-Null
   $ArrayConfig = Join-Path $ArrayHome ".codex\config.toml"
   [IO.File]::WriteAllText($ArrayConfig, "[[mcp_servers.image2]]`r`ncommand = `"ambiguous`"`r`n", (New-Object Text.UTF8Encoding($false)))
