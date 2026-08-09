@@ -14,6 +14,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func TestServerVersion(t *testing.T) {
+	if serverVersion != "0.2.1" {
+		t.Fatalf("serverVersion = %q, want 0.2.1", serverVersion)
+	}
+}
+
 func TestServerListsGenerateImage2AndEditImage2Tools(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()

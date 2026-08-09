@@ -13,6 +13,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const serverVersion = "0.2.1"
+
 type generateParams struct {
 	Prompt     string `json:"prompt" jsonschema:"Image prompt to generate."`
 	Size       string `json:"size,omitempty" jsonschema:"Image size, defaults to 1024x1024."`
@@ -49,7 +51,7 @@ func run() error {
 func newServer(projectRoot, outputDir string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "image2-mcp",
-		Version: "0.2.0",
+		Version: serverVersion,
 	}, &mcp.ServerOptions{
 		Instructions: "Generate and edit images with gpt-image-2 via OPENAI_IMAGE_BASE_URL and OPENAI_IMAGE_API_KEY. The generate_image2 tool generates and the edit_image2 tool edits PNG files, saving to output_dir when provided, otherwise output/imagegen, and returns the local file path.",
 	})

@@ -9,7 +9,25 @@ permissions:
   contents: write
 
 jobs:
+  installer-tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Bash installer
+        if: runner.os == 'Linux'
+        run: |
+          bash tests/test-install-key-only.sh
+          bash tests/test-agent-install-contract.sh
+      - name: Test PowerShell installer
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\tests\test-install-key-only.ps1
+
   build:
+    needs: installer-tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
