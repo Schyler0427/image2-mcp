@@ -14,6 +14,37 @@ for required in \
   '.image2-mcp-managed'; do
   grep -Fq "$required" "$doc" || { echo "FAIL: missing $required" >&2; exit 1; }
 done
+for required in \
+  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1' \
+  'v0.2.1' \
+  'image2-mcp_darwin_arm64.tar.gz' \
+  'image2-mcp_darwin_amd64.tar.gz' \
+  'image2-mcp_linux_arm64.tar.gz' \
+  'image2-mcp_linux_amd64.tar.gz' \
+  'image2-mcp_windows_arm64.zip' \
+  'image2-mcp_windows_amd64.zip' \
+  'draft' \
+  'prerelease' \
+  'git clone --depth 1 https://github.com/Schyler0427/image2-mcp.git' \
+  'curl -fL' \
+  'wget -O' \
+  'tar -xzf' \
+  'Invoke-WebRequest' \
+  'Expand-Archive' \
+  'byte-for-byte' \
+  'A blank or whitespace-only key fails once with no re-prompt.' \
+  'must never call an image API'; do
+  grep -Fq "$required" "$doc" || { echo "FAIL: missing $required" >&2; exit 1; }
+done
+for required in \
+  'prior `.env.local` from the backup into the replacement' \
+  'before prompting for the key' \
+  'new atomic' \
+  'prior `output/` from the backup into the replacement' \
+  'backup untouched until successful' \
+  'complete old target from the untouched backup'; do
+  grep -Fq "$required" "$doc" || { echo "FAIL: missing preservation rule: $required" >&2; exit 1; }
+done
 if grep -Eiq 'ask (for|the user for).*(url|path|repo|branch|go)|T[B]D|TO[D]O|<yo[u]r' "$doc"; then
   echo 'FAIL: Agent guide contains a forbidden prompt or placeholder' >&2
   exit 1
