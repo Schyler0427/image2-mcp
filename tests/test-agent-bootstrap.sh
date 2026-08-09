@@ -50,6 +50,10 @@ case "$url" in
     ;;
   https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.tar.gz)
     cp "$BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE" "$out"
+    if [[ -f "$HOME/.fixture-signal-int-on-source" ]]; then
+      kill -INT "$PPID"
+      sleep 1
+    fi
     ;;
   *)
     exit 22
@@ -57,6 +61,47 @@ case "$url" in
 esac
 CURL
 chmod +x "$fakebin/curl"
+
+cat >"$fakebin/mv" <<'MV'
+#!/usr/bin/env bash
+set -euo pipefail
+source_path=''
+destination=''
+for argument in "$@"; do
+  source_path="$destination"
+  destination="$argument"
+done
+if [[ -f "$HOME/.fixture-fail-target-restore" &&
+      "$source_path" == */image2-mcp.backup.*/previous &&
+      "$destination" == */image2-mcp ]]; then
+  exit 73
+fi
+/bin/mv "$@"
+if [[ -f "$HOME/.fixture-signal-after-old-move" &&
+      "$destination" == */image2-mcp.backup.*/previous ]]; then
+  kill -TERM "$PPID"
+  sleep 1
+fi
+MV
+chmod +x "$fakebin/mv"
+
+cat >"$fakebin/cp" <<'CP'
+#!/usr/bin/env bash
+set -euo pipefail
+source_path=''
+destination=''
+for argument in "$@"; do
+  source_path="$destination"
+  destination="$argument"
+done
+if [[ -f "$HOME/.fixture-fail-config-restore" &&
+      "$source_path" == */.image2-mcp-bootstrap.*/config.toml.before &&
+      "$destination" == */.codex/config.toml ]]; then
+  exit 74
+fi
+/bin/cp "$@"
+CP
+chmod +x "$fakebin/cp"
 
 make_source_archive() {
   local name="$1" version="$2" mode="${3:-ok}" tree archive
@@ -104,6 +149,30 @@ INSTALL
   printf '%s\n' "$archive"
 }
 
+make_canonical_duplicate_archive() {
+  local base_archive="$1" plain="$tmp/sources/canonical-duplicate.tar"
+  local archive="$tmp/sources/canonical-duplicate.tar.gz"
+  local file_tree="$tmp/sources/canonical-file" directory_tree="$tmp/sources/canonical-directory"
+  gzip -dc "$base_archive" >"$plain"
+  mkdir -p "$file_tree/image2-mcp-0.2.1" "$directory_tree/image2-mcp-0.2.1/canonical-path"
+  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.2.1/canonical-path"
+  tar -rf "$plain" -C "$file_tree" image2-mcp-0.2.1/canonical-path
+  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.2.1/canonical-path
+  gzip -c "$plain" >"$archive"
+  printf '%s\n' "$archive"
+}
+
+make_repeated_slash_archive() {
+  local base_archive="$1" plain="$tmp/sources/repeated-slash.tar"
+  local archive="$tmp/sources/repeated-slash.tar.gz" tree="$tmp/sources/repeated-slash"
+  gzip -dc "$base_archive" >"$plain"
+  mkdir -p "$tree/image2-mcp-0.2.1/repeated"
+  printf 'repeated slash path\n' >"$tree/image2-mcp-0.2.1/repeated/path.txt"
+  tar -rf "$plain" -C "$tree" image2-mcp-0.2.1//repeated/path.txt
+  gzip -c "$plain" >"$archive"
+  printf '%s\n' "$archive"
+}
+
 run_bootstrap() {
   local home="$1" archive="$2" output="$3"
   printf '%s\n' 'fixture-key-redacted' |
@@ -132,6 +201,21 @@ v2_archive="$(make_source_archive v2 version-two collision)"
 fail_archive="$(make_source_archive fail version-failing fail)"
 symlink_archive="$(make_source_archive symlink version-symlink symlink)"
 invalid_archive="$(make_source_archive invalid version-invalid invalid)"
+canonical_duplicate_archive="$(make_canonical_duplicate_archive "$v1_archive")"
+repeated_slash_archive="$(make_repeated_slash_archive "$v1_archive")"
+
+# Handled signals terminate with their conventional status instead of resuming.
+signal_home="$tmp/signal-home"
+mkdir -p "$signal_home"
+: >"$signal_home/.fixture-signal-int-on-source"
+if run_bootstrap "$signal_home" "$v1_archive" "$tmp/signal-int.log"; then
+  signal_status=0
+else
+  signal_status=$?
+fi
+[[ "$signal_status" -eq 130 ]] || fail "SIGINT exited with $signal_status instead of 130"
+[[ ! -e "$signal_home/.local/share/image2-mcp" ]] || fail 'SIGINT continued into target activation'
+assert_not_contains "$tmp/signal-int.log" 'fixture-key-redacted'
 
 # First install and clean repeat use only fixed HOME-derived targets.
 clean_home="$tmp/clean-home"
@@ -221,6 +305,33 @@ assert_contains "$source_target/customer.txt" 'rollback sentinel'
 [[ "$(cat "$source_target/version.txt")" == 'version-one' ]] || fail 'symlink archive changed target'
 run_bootstrap_expect_failure "$source_home" "$invalid_archive" "$tmp/source-invalid.log"
 assert_contains "$source_target/customer.txt" 'rollback sentinel'
+run_bootstrap_expect_failure "$source_home" "$canonical_duplicate_archive" "$tmp/source-canonical-duplicate.log"
+assert_contains "$tmp/source-canonical-duplicate.log" 'duplicate canonical path'
+assert_contains "$source_target/customer.txt" 'rollback sentinel'
+run_bootstrap_expect_failure "$source_home" "$repeated_slash_archive" "$tmp/source-repeated-slash.log"
+assert_contains "$tmp/source-repeated-slash.log" 'noncanonical path'
+assert_contains "$source_target/customer.txt" 'rollback sentinel'
+
+# A signal delivered immediately after the old-target rename still restores it.
+signal_race_home="$tmp/signal-race-home"
+mkdir -p "$signal_race_home/.codex"
+printf 'signal original config\n' >"$signal_race_home/.codex/config.toml"
+run_bootstrap "$signal_race_home" "$v1_archive" "$tmp/signal-race-first.log" || fail 'signal race setup failed'
+signal_race_target="$signal_race_home/.local/share/image2-mcp"
+printf 'signal customer content\n' >"$signal_race_target/customer.txt"
+printf 'signal prior config\n' >"$signal_race_home/.codex/config.toml"
+signal_config_before="$(cksum "$signal_race_home/.codex/config.toml")"
+: >"$signal_race_home/.fixture-signal-after-old-move"
+if run_bootstrap "$signal_race_home" "$v2_archive" "$tmp/signal-race.log"; then
+  signal_race_status=0
+else
+  signal_race_status=$?
+fi
+[[ "$signal_race_status" -eq 143 ]] || fail "rename-race TERM exited with $signal_race_status instead of 143"
+[[ "$(cat "$signal_race_target/version.txt")" == 'version-one' ]] || fail 'rename-race TERM did not restore old target'
+assert_contains "$signal_race_target/customer.txt" 'signal customer content'
+[[ "$(cksum "$signal_race_home/.codex/config.toml")" == "$signal_config_before" ]] || fail 'rename-race TERM did not restore config'
+assert_not_contains "$tmp/signal-race.log" 'fixture-key-redacted'
 
 # Installer failure restores the full target and the exact prior Codex config.
 rollback_home="$tmp/rollback-home"
@@ -238,5 +349,44 @@ assert_contains "$rollback_target/customer.txt" 'customer rollback content'
 [[ -z "$(find_previous_backup "$rollback_home/.local/share")" ]] || fail 'failed repeat left a retained backup'
 [[ -z "$(find "$rollback_home/.local/share" -maxdepth 1 -type d -name '.image2-mcp-bootstrap.*' -print)" ]] || fail 'failed repeat left transaction state'
 assert_not_contains "$tmp/installer-failure.log" 'fixture-key-redacted'
+
+# A failed target restore retains both the previous target and transaction evidence.
+target_recovery_home="$tmp/target-recovery-home"
+mkdir -p "$target_recovery_home/.codex"
+printf 'target recovery original config\n' >"$target_recovery_home/.codex/config.toml"
+run_bootstrap "$target_recovery_home" "$v1_archive" "$tmp/target-recovery-first.log" || fail 'target recovery setup failed'
+target_recovery_target="$target_recovery_home/.local/share/image2-mcp"
+printf 'target recovery customer content\n' >"$target_recovery_target/customer.txt"
+printf 'target recovery prior config\n' >"$target_recovery_home/.codex/config.toml"
+target_recovery_config_before="$(cksum "$target_recovery_home/.codex/config.toml")"
+: >"$target_recovery_home/.fixture-fail-target-restore"
+run_bootstrap_expect_failure "$target_recovery_home" "$fail_archive" "$tmp/target-recovery.log"
+assert_contains "$tmp/target-recovery.log" 'recovery failed'
+target_recovery_backup="$(find_previous_backup "$target_recovery_home/.local/share" | sed -n '1p')"
+[[ -n "$target_recovery_backup" ]] || fail 'failed target restore discarded previous-target evidence'
+assert_contains "$target_recovery_backup/customer.txt" 'target recovery customer content'
+target_recovery_txn="$(find "$target_recovery_home/.local/share" -maxdepth 1 -type d -name '.image2-mcp-bootstrap.*' -print | sed -n '1p')"
+[[ -n "$target_recovery_txn" && -d "$target_recovery_txn/failed-target" ]] || fail 'failed target restore discarded transaction evidence'
+[[ "$(cksum "$target_recovery_home/.codex/config.toml")" == "$target_recovery_config_before" ]] || fail 'target-restore failure did not restore config'
+assert_not_contains "$tmp/target-recovery.log" 'fixture-key-redacted'
+
+# A failed config restore retains its snapshot and the displaced failed target.
+config_recovery_home="$tmp/config-recovery-home"
+mkdir -p "$config_recovery_home/.codex"
+printf 'config recovery original config\n' >"$config_recovery_home/.codex/config.toml"
+run_bootstrap "$config_recovery_home" "$v1_archive" "$tmp/config-recovery-first.log" || fail 'config recovery setup failed'
+config_recovery_target="$config_recovery_home/.local/share/image2-mcp"
+printf 'config recovery customer content\n' >"$config_recovery_target/customer.txt"
+printf 'config recovery prior config\n' >"$config_recovery_home/.codex/config.toml"
+: >"$config_recovery_home/.fixture-fail-config-restore"
+run_bootstrap_expect_failure "$config_recovery_home" "$fail_archive" "$tmp/config-recovery.log"
+assert_contains "$tmp/config-recovery.log" 'recovery failed'
+[[ "$(cat "$config_recovery_target/version.txt")" == 'version-one' ]] || fail 'config-restore failure did not restore old target'
+assert_contains "$config_recovery_target/customer.txt" 'config recovery customer content'
+config_recovery_txn="$(find "$config_recovery_home/.local/share" -maxdepth 1 -type d -name '.image2-mcp-bootstrap.*' -print | sed -n '1p')"
+[[ -n "$config_recovery_txn" && -f "$config_recovery_txn/config.toml.before" ]] || fail 'failed config restore discarded config snapshot'
+assert_contains "$config_recovery_txn/config.toml.before" 'config recovery prior config'
+[[ -d "$config_recovery_txn/failed-target" ]] || fail 'failed config restore discarded failed-target evidence'
+assert_not_contains "$tmp/config-recovery.log" 'fixture-key-redacted'
 
 printf 'PASS: Bash Agent bootstrap helper\n'

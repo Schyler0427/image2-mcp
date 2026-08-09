@@ -11,8 +11,8 @@ readonly_base_url='https://api.schyler.top'
 txn=''
 target=''
 backup_root=''
-old_moved=0
-new_active=0
+old_move_started=0
+new_move_started=0
 transaction_complete=0
 config_file=''
 config_existed=0
@@ -21,6 +21,12 @@ config_snapshot=''
 fail() {
   printf 'error: %s\n' "$*" >&2
   return 1
+}
+
+terminate_from_signal() {
+  local exit_status="$1"
+  trap - HUP INT TERM
+  exit "$exit_status"
 }
 
 platform_name() {
@@ -118,8 +124,10 @@ validate_existing_target() {
 }
 
 validate_archive() {
-  local archive="$1" entries="$txn/archive-entries" seen="$txn/archive-seen" entry type parent prior
+  local archive="$1" entries="$txn/archive-entries" seen="$txn/archive-seen"
+  local directories="$txn/archive-directories" entry canonical type parent prior
   : >"$seen"
+  : >"$directories"
   tar -tzf "$archive" >"$entries" || fail 'source archive cannot be listed'
   [[ -s "$entries" ]] || fail 'source archive is empty'
   while IFS= read -r entry; do
@@ -128,14 +136,20 @@ validate_archive() {
       fail 'source archive contains a control character in a path'
     fi
     case "$entry" in
+      *'//'*) fail 'source archive contains a noncanonical path' ;;
+      */) canonical="${entry%/}" ;;
+      *) canonical="$entry" ;;
+    esac
+    [[ -n "$canonical" ]] || fail 'source archive contains a noncanonical path'
+    case "$canonical" in
       "$readonly_source_root"|"$readonly_source_root"/*) ;;
       *) fail 'source archive contains a path outside the expected root' ;;
     esac
-    case "/$entry/" in
+    case "/$canonical/" in
       */../*|*/./*) fail 'source archive contains a traversal path' ;;
     esac
-    if grep -Fqx -- "$entry" "$seen"; then
-      fail 'source archive contains a duplicate path'
+    if grep -Fqx -- "$canonical" "$seen"; then
+      fail 'source archive contains a duplicate canonical path'
     fi
     type="$(tar -tvzf "$archive" "$entry" 2>/dev/null | sed -n '1s/^\(.\).*$/\1/p')"
     case "$type" in
@@ -145,17 +159,18 @@ validate_archive() {
     if [[ "$type" == '-' ]]; then
       while IFS= read -r prior; do
         case "$prior" in
-          "$entry"/*) fail 'source archive contains a file/directory prefix collision' ;;
+          "$canonical"/*) fail 'source archive contains a file/directory prefix collision' ;;
         esac
       done <"$seen"
+    else
+      printf '%s\n' "$canonical" >>"$directories"
     fi
-    printf '%s\n' "$entry" >>"$seen"
-    parent="$entry"
+    printf '%s\n' "$canonical" >>"$seen"
+    parent="$canonical"
     while [[ "$parent" == */* ]]; do
       parent="${parent%/*}"
       if grep -Fqx -- "$parent" "$seen"; then
-        type="$(tar -tvzf "$archive" "$parent" 2>/dev/null | sed -n '1s/^\(.\).*$/\1/p')"
-        [[ "$type" == d ]] || fail 'source archive contains a file/directory prefix collision'
+        grep -Fqx -- "$parent" "$directories" || fail 'source archive contains a file/directory prefix collision'
       fi
     done
   done <"$entries"
@@ -199,23 +214,58 @@ restore_codex_config() {
 }
 
 finish_transaction() {
-  local status=$?
+  local exit_status=$? recovery_failed=0 backup_restored=0
+  trap - EXIT
   if [[ "$transaction_complete" -ne 1 ]]; then
-    if [[ "$new_active" -eq 1 && -e "$target" ]]; then
-      mv "$target" "$txn/failed-target" 2>/dev/null || true
+    if [[ "$new_move_started" -eq 1 && ( -e "$target" || -L "$target" ) ]]; then
+      if [[ -z "$txn" || ! -d "$txn" || -e "$txn/failed-target" || -L "$txn/failed-target" ]]; then
+        recovery_failed=1
+      elif ! mv "$target" "$txn/failed-target" 2>/dev/null; then
+        recovery_failed=1
+      fi
     fi
-    if [[ "$old_moved" -eq 1 && -d "$backup_root/previous" && ! -e "$target" ]]; then
-      mv "$backup_root/previous" "$target" 2>/dev/null || true
-      rmdir "$backup_root" 2>/dev/null || true
+    if [[ "$old_move_started" -eq 1 && ( -e "$backup_root/previous" || -L "$backup_root/previous" ) ]]; then
+      if [[ -e "$target" || -L "$target" ]]; then
+        recovery_failed=1
+      elif mv "$backup_root/previous" "$target" 2>/dev/null; then
+        backup_restored=1
+      else
+        recovery_failed=1
+      fi
+    elif [[ "$old_move_started" -eq 1 && ! -e "$target" && ! -L "$target" ]]; then
+      recovery_failed=1
     fi
     if [[ -n "$config_file" ]]; then
-      restore_codex_config 2>/dev/null || true
+      if ! restore_codex_config 2>/dev/null; then
+        recovery_failed=1
+      fi
+    fi
+    if [[ "$recovery_failed" -eq 0 && "$backup_restored" -eq 1 ]]; then
+      if ! rmdir "$backup_root" 2>/dev/null; then
+        recovery_failed=1
+      fi
     fi
   fi
-  if [[ -n "$txn" && -d "$txn" ]]; then
-    rm -rf "$txn"
+  if [[ "$recovery_failed" -ne 0 ]]; then
+    printf 'error: recovery failed; automatic rollback is incomplete\n' >&2
+    if [[ -n "$txn" && -d "$txn" ]]; then
+      printf 'Transaction evidence retained at: %s\n' "$txn" >&2
+    fi
+    if [[ -n "$backup_root" && ( -e "$backup_root/previous" || -L "$backup_root/previous" ) ]]; then
+      printf 'Previous installation retained at: %s\n' "$backup_root/previous" >&2
+    fi
+    if [[ "$exit_status" -eq 0 ]]; then
+      return 1
+    fi
+    return "$exit_status"
   fi
-  return "$status"
+  if [[ -n "$txn" && -d "$txn" ]] && ! rm -rf "$txn"; then
+    printf 'error: recovery cleanup failed; transaction evidence may remain at: %s\n' "$txn" >&2
+    if [[ "$exit_status" -eq 0 ]]; then
+      return 1
+    fi
+  fi
+  return "$exit_status"
 }
 
 run_key_only_installer() {
@@ -237,7 +287,10 @@ main() {
   target="$parent/image2-mcp"
   mkdir -p "$parent"
   txn="$(mktemp -d "$parent/.image2-mcp-bootstrap.XXXXXX")"
-  trap finish_transaction EXIT HUP INT TERM
+  trap finish_transaction EXIT
+  trap 'terminate_from_signal 129' HUP
+  trap 'terminate_from_signal 130' INT
+  trap 'terminate_from_signal 143' TERM
 
   release_json="$txn/release.json"
   download_file "$readonly_release_api" "$release_json"
@@ -261,11 +314,11 @@ main() {
 
   if [[ "$repeat" -eq 1 ]]; then
     backup_root="$(mktemp -d "$parent/image2-mcp.backup.XXXXXX")"
+    old_move_started=1
     mv "$target" "$backup_root/previous"
-    old_moved=1
   fi
+  new_move_started=1
   mv "$stage" "$target"
-  new_active=1
   run_key_only_installer
 
   transaction_complete=1
