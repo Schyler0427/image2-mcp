@@ -54,8 +54,12 @@ function Import-DotEnv([string]$Path) {
   }
 }
 
-Import-DotEnv (Join-Path $RepoDir ".env.local")
-Import-DotEnv (Join-Path $RepoDir ".env")
+$LocalEnv = Join-Path $RepoDir ".env.local"
+if (Test-Path $LocalEnv) {
+  Import-DotEnv $LocalEnv
+} else {
+  Import-DotEnv (Join-Path $RepoDir ".env")
+}
 
 & (Join-Path $RepoDir "dist\image2-mcp.exe")
 exit $LASTEXITCODE
