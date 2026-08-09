@@ -474,16 +474,21 @@ function Test-KeyOnlyInstall {
 
   $PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
   $QuotedRunner = '"' + $Runner.Replace('"', '\"') + '"'
-  $EmptyInput = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdin-" + [Guid]::NewGuid().ToString("N"))
+  $TempToken = [Guid]::NewGuid().ToString("N")
+  $EmptyInput = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdin-" + $TempToken)
+  $RunnerStdout = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdout-" + $TempToken + ".log")
+  $RunnerStderr = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stderr-" + $TempToken + ".log")
   try {
     [IO.File]::WriteAllText($EmptyInput, "", (New-Object Text.UTF8Encoding($false)))
-    $Process = Start-Process -FilePath $PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $QuotedRunner" -RedirectStandardInput $EmptyInput -NoNewWindow -PassThru -Wait
+    $Process = Start-Process -FilePath $PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $QuotedRunner" -RedirectStandardInput $EmptyInput -RedirectStandardOutput $RunnerStdout -RedirectStandardError $RunnerStderr -NoNewWindow -PassThru -Wait
     if ($Process.ExitCode -ne 0) {
       throw "runner startup verification failed"
     }
   } finally {
-    if (Test-Path $EmptyInput) {
-      Remove-Item -Force $EmptyInput
+    foreach ($TemporaryFile in @($EmptyInput, $RunnerStdout, $RunnerStderr)) {
+      if (Test-Path $TemporaryFile) {
+        Remove-Item -Force -ErrorAction SilentlyContinue $TemporaryFile
+      }
     }
   }
 

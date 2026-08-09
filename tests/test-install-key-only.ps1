@@ -176,32 +176,10 @@ command = "C:\keep\image20-runner.exe"
   Assert-True ($env:OPENAI_IMAGE_API_KEY -eq $Secret) "stored API Key did not round-trip"
 
   $SecretText = "sk-test-pipeline-first-line"
-  $PipelineStderrFile = Join-Path $TempRoot ("pipeline-stderr-" + [Guid]::NewGuid().ToString("N") + ".log")
-  $PipelineOutput = ""
-  $PipelineExitCode = -1
-  $PreviousErrorActionPreference = $ErrorActionPreference
-  try {
-    $ErrorActionPreference = "Continue"
-    $PipelineOutput = @($SecretText, "ignored-second-line") |
-      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:Installer -KeyOnly 2> $PipelineStderrFile |
-      Out-String
-    $PipelineExitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $PreviousErrorActionPreference
-  }
-  if ($PipelineExitCode -ne 0) {
-    $PipelineStderr = if (Test-Path $PipelineStderrFile) { [IO.File]::ReadAllText($PipelineStderrFile) } else { "" }
-    $PromptSeen = $PipelineOutput.Contains("OPENAI_IMAGE_API_KEY:")
-    $DownloadSeen = $PipelineOutput.Contains("==> Downloading prebuilt binary:")
-    $ConfigSeen = $PipelineOutput.Contains("==> Adding image2 MCP config") -or $PipelineOutput.Contains("==> Replacing existing image2 MCP config")
-    $VerificationSeen = $PipelineOutput.Contains("Verification: OK")
-    $ReadySeen = $PipelineOutput.Contains("Image2 MCP is ready.")
-    $MemoryErrorSeen = $PipelineStderr.Contains("Not enough memory resources are available to process this command.")
-    Write-Host "PIPELINE_DIAGNOSTIC prompt=$PromptSeen download=$DownloadSeen config=$ConfigSeen verification=$VerificationSeen ready=$ReadySeen memory_error=$MemoryErrorSeen"
-    Remove-Item -Force -ErrorAction SilentlyContinue $PipelineStderrFile
-    throw "pipeline key-only install failed (diagnostic emitted)"
-  }
-  Remove-Item -Force -ErrorAction SilentlyContinue $PipelineStderrFile
+  $PipelineOutput = @($SecretText, "ignored-second-line") |
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:Installer -KeyOnly 2>&1 |
+    Out-String
+  $PipelineExitCode = $LASTEXITCODE
   Assert-True ($PipelineExitCode -eq 0) "pipeline key-only install failed"
   Assert-True ($PipelineOutput.Contains("Verification: OK")) "pipeline verification marker missing"
   Assert-True (-not $PipelineOutput.Contains($SecretText)) "pipeline API Key leaked to output"
