@@ -76,9 +76,19 @@ if [[ -f "$HOME/.fixture-fail-target-restore" &&
       "$destination" == */image2-mcp ]]; then
   exit 73
 fi
+if [[ -f "$HOME/.fixture-fail-old-target-move" &&
+      "$source_path" == */image2-mcp &&
+      "$destination" == */image2-mcp.backup.*/previous ]]; then
+  exit 75
+fi
 /bin/mv "$@"
 if [[ -f "$HOME/.fixture-signal-after-old-move" &&
       "$destination" == */image2-mcp.backup.*/previous ]]; then
+  kill -TERM "$PPID"
+  sleep 1
+fi
+if [[ -f "$HOME/.fixture-signal-during-rollback" &&
+      "$destination" == */.image2-mcp-bootstrap.*/failed-target ]]; then
   kill -TERM "$PPID"
   sleep 1
 fi
@@ -349,6 +359,52 @@ assert_contains "$rollback_target/customer.txt" 'customer rollback content'
 [[ -z "$(find_previous_backup "$rollback_home/.local/share")" ]] || fail 'failed repeat left a retained backup'
 [[ -z "$(find "$rollback_home/.local/share" -maxdepth 1 -type d -name '.image2-mcp-bootstrap.*' -print)" ]] || fail 'failed repeat left transaction state'
 assert_not_contains "$tmp/installer-failure.log" 'fixture-key-redacted'
+
+# Signals arriving during EXIT rollback cannot interrupt target/config restoration.
+rollback_signal_home="$tmp/rollback-signal-home"
+mkdir -p "$rollback_signal_home/.codex"
+printf 'rollback signal original config\n' >"$rollback_signal_home/.codex/config.toml"
+run_bootstrap "$rollback_signal_home" "$v1_archive" "$tmp/rollback-signal-first.log" || fail 'rollback signal setup failed'
+rollback_signal_target="$rollback_signal_home/.local/share/image2-mcp"
+printf 'rollback signal customer content\n' >"$rollback_signal_target/customer.txt"
+printf 'rollback signal prior config\n' >"$rollback_signal_home/.codex/config.toml"
+rollback_signal_config_before="$(cksum "$rollback_signal_home/.codex/config.toml")"
+: >"$rollback_signal_home/.fixture-signal-during-rollback"
+if run_bootstrap "$rollback_signal_home" "$fail_archive" "$tmp/rollback-signal.log"; then
+  rollback_signal_status=0
+else
+  rollback_signal_status=$?
+fi
+[[ "$rollback_signal_status" -eq 1 ]] || fail "rollback signal changed original exit status to $rollback_signal_status"
+[[ "$(cat "$rollback_signal_target/version.txt")" == 'version-one' ]] || fail 'rollback signal did not restore old target'
+assert_contains "$rollback_signal_target/customer.txt" 'rollback signal customer content'
+[[ "$(cksum "$rollback_signal_home/.codex/config.toml")" == "$rollback_signal_config_before" ]] || fail 'rollback signal did not restore config'
+[[ -z "$(find_previous_backup "$rollback_signal_home/.local/share")" ]] || fail 'rollback signal left a retained backup'
+[[ -z "$(find "$rollback_signal_home/.local/share" -maxdepth 1 -type d -name '.image2-mcp-bootstrap.*' -print)" ]] || fail 'rollback signal left transaction state'
+assert_not_contains "$tmp/rollback-signal.log" 'fixture-key-redacted'
+
+# A failed initial old-target rename leaves no empty sibling backup directory.
+old_move_failure_home="$tmp/old-move-failure-home"
+mkdir -p "$old_move_failure_home/.codex"
+printf 'old move original config\n' >"$old_move_failure_home/.codex/config.toml"
+run_bootstrap "$old_move_failure_home" "$v1_archive" "$tmp/old-move-first.log" || fail 'old move failure setup failed'
+old_move_failure_target="$old_move_failure_home/.local/share/image2-mcp"
+printf 'old move customer content\n' >"$old_move_failure_target/customer.txt"
+printf 'old move prior config\n' >"$old_move_failure_home/.codex/config.toml"
+old_move_config_before="$(cksum "$old_move_failure_home/.codex/config.toml")"
+: >"$old_move_failure_home/.fixture-fail-old-target-move"
+if run_bootstrap "$old_move_failure_home" "$v2_archive" "$tmp/old-move-failure.log"; then
+  old_move_failure_status=0
+else
+  old_move_failure_status=$?
+fi
+[[ "$old_move_failure_status" -eq 75 ]] || fail "failed old-target move exited with $old_move_failure_status instead of 75"
+[[ "$(cat "$old_move_failure_target/version.txt")" == 'version-one' ]] || fail 'failed old-target move changed target'
+assert_contains "$old_move_failure_target/customer.txt" 'old move customer content'
+[[ "$(cksum "$old_move_failure_home/.codex/config.toml")" == "$old_move_config_before" ]] || fail 'failed old-target move changed config'
+old_move_backup_dirs="$(find "$old_move_failure_home/.local/share" -maxdepth 1 -type d -name 'image2-mcp.backup.*' -print)"
+[[ -z "$old_move_backup_dirs" ]] || fail 'failed old-target move left an empty backup directory'
+assert_not_contains "$tmp/old-move-failure.log" 'fixture-key-redacted'
 
 # A failed target restore retains both the previous target and transaction evidence.
 target_recovery_home="$tmp/target-recovery-home"

@@ -214,7 +214,8 @@ restore_codex_config() {
 }
 
 finish_transaction() {
-  local exit_status=$? recovery_failed=0 backup_restored=0
+  local exit_status=$? recovery_failed=0
+  trap '' HUP INT TERM
   trap - EXIT
   if [[ "$transaction_complete" -ne 1 ]]; then
     if [[ "$new_move_started" -eq 1 && ( -e "$target" || -L "$target" ) ]]; then
@@ -227,9 +228,7 @@ finish_transaction() {
     if [[ "$old_move_started" -eq 1 && ( -e "$backup_root/previous" || -L "$backup_root/previous" ) ]]; then
       if [[ -e "$target" || -L "$target" ]]; then
         recovery_failed=1
-      elif mv "$backup_root/previous" "$target" 2>/dev/null; then
-        backup_restored=1
-      else
+      elif ! mv "$backup_root/previous" "$target" 2>/dev/null; then
         recovery_failed=1
       fi
     elif [[ "$old_move_started" -eq 1 && ! -e "$target" && ! -L "$target" ]]; then
@@ -240,7 +239,9 @@ finish_transaction() {
         recovery_failed=1
       fi
     fi
-    if [[ "$recovery_failed" -eq 0 && "$backup_restored" -eq 1 ]]; then
+    if [[ "$old_move_started" -eq 1 && -n "$backup_root" &&
+          ( -e "$backup_root" || -L "$backup_root" ) &&
+          ! -e "$backup_root/previous" && ! -L "$backup_root/previous" ]]; then
       if ! rmdir "$backup_root" 2>/dev/null; then
         recovery_failed=1
       fi
@@ -253,6 +254,8 @@ finish_transaction() {
     fi
     if [[ -n "$backup_root" && ( -e "$backup_root/previous" || -L "$backup_root/previous" ) ]]; then
       printf 'Previous installation retained at: %s\n' "$backup_root/previous" >&2
+    elif [[ -n "$backup_root" && ( -e "$backup_root" || -L "$backup_root" ) ]]; then
+      printf 'Backup evidence retained at: %s\n' "$backup_root" >&2
     fi
     if [[ "$exit_status" -eq 0 ]]; then
       return 1
