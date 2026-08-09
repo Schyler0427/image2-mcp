@@ -81,14 +81,14 @@ function Assert-AgentBootstrapExistingTarget(
       throw "existing Git target cannot be validated"
     }
     if (-not [string]::Equals(
-      (Get-AgentBootstrapFullPath $Top.Trim()),
+      (Get-AgentBootstrapFullPath $Top),
       (Get-AgentBootstrapFullPath $Target),
       [StringComparison]::OrdinalIgnoreCase
     )) {
       throw "managed target is not the Git worktree root"
     }
     $Remote = [string](& $Git.Source -C $Target remote get-url origin 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $Remote.Trim() -cne $RepositoryUrl) {
+    if ($LASTEXITCODE -ne 0 -or $Remote -cne $RepositoryUrl) {
       throw "existing Git target origin does not match the fixed repository"
     }
     return
@@ -96,8 +96,15 @@ function Assert-AgentBootstrapExistingTarget(
 
   $MarkerPath = Join-Path $Target ".image2-mcp-managed"
   Assert-AgentBootstrapPlainFile $MarkerPath "existing target managed marker"
-  if ([IO.File]::ReadAllText($MarkerPath) -cne $RepositorySlug) {
+  $MarkerBytes = [IO.File]::ReadAllBytes($MarkerPath)
+  $ExpectedMarkerBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($RepositorySlug)
+  if ($MarkerBytes.Length -ne $ExpectedMarkerBytes.Length) {
     throw "existing archive target marker does not match the fixed repository"
+  }
+  for ($Index = 0; $Index -lt $ExpectedMarkerBytes.Length; $Index++) {
+    if ($MarkerBytes[$Index] -ne $ExpectedMarkerBytes[$Index]) {
+      throw "existing archive target marker does not match the fixed repository"
+    }
   }
 }
 
@@ -395,13 +402,14 @@ function Invoke-AgentBootstrap {
   if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
     throw "LOCALAPPDATA is required"
   }
-  if ([string]::IsNullOrWhiteSpace($env:HOME)) {
+  if ([string]::IsNullOrWhiteSpace($HOME)) {
     throw "HOME is required"
   }
 
+  $HomePath = [string]$HOME
   $Parent = $env:LOCALAPPDATA
   $Target = Join-Path $Parent "image2-mcp"
-  $ConfigPath = Join-Path (Join-Path $env:HOME ".codex") "config.toml"
+  $ConfigPath = Join-Path (Join-Path $HomePath ".codex") "config.toml"
   [IO.Directory]::CreateDirectory($Parent) | Out-Null
   $TransactionPath = New-AgentBootstrapDirectory $Parent ".image2-mcp-bootstrap."
   $BackupRoot = $null

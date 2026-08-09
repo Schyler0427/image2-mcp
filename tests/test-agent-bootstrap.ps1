@@ -65,6 +65,13 @@ Write-Host "Verification: OK"
   return $Archive
 }
 
+function Add-TestZipEntry($Zip, [string]$Name, [int]$ExternalAttributes = 0) {
+  $Entry = $Zip.CreateEntry($Name)
+  $Entry.ExternalAttributes = $ExternalAttributes
+  $Writer = New-Object IO.StreamWriter($Entry.Open(), (New-Object Text.UTF8Encoding($false)))
+  try { $Writer.Write("fixture") } finally { $Writer.Dispose() }
+}
+
 function New-UnsafeCaseZip {
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $Archive = Join-Path $TempRoot "unsafe-case.zip"
@@ -75,13 +82,61 @@ function New-UnsafeCaseZip {
       "image2-mcp-0.2.1/install.sh",
       "image2-mcp-0.2.1/install.ps1",
       "image2-mcp-0.2.1/go.mod",
+      "image2-mcp-0.2.1/scripts/run-image2-mcp.ps1",
       "image2-mcp-0.2.1/Case.txt",
       "image2-mcp-0.2.1/case.txt"
     )) {
-      $Entry = $Zip.CreateEntry($Name)
-      $Writer = New-Object IO.StreamWriter($Entry.Open(), (New-Object Text.UTF8Encoding($false)))
-      try { $Writer.Write("fixture") } finally { $Writer.Dispose() }
+      Add-TestZipEntry $Zip $Name
     }
+  } finally {
+    $Zip.Dispose()
+    $Stream.Dispose()
+  }
+  return $Archive
+}
+
+function New-UnsafePrefixZip([string]$Name, [switch]$ChildFirst) {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $Archive = Join-Path $TempRoot ($Name + ".zip")
+  $Stream = [IO.File]::Open($Archive, [IO.FileMode]::Create)
+  $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
+  $Required = @(
+    "image2-mcp-0.2.1/install.sh",
+    "image2-mcp-0.2.1/install.ps1",
+    "image2-mcp-0.2.1/go.mod",
+    "image2-mcp-0.2.1/scripts/run-image2-mcp.ps1"
+  )
+  $Collision = if ($ChildFirst) {
+    @("image2-mcp-0.2.1/prefix/child.txt", "image2-mcp-0.2.1/prefix")
+  } else {
+    @("image2-mcp-0.2.1/prefix", "image2-mcp-0.2.1/prefix/child.txt")
+  }
+  try {
+    foreach ($EntryName in @($Required + $Collision)) {
+      Add-TestZipEntry $Zip $EntryName
+    }
+  } finally {
+    $Zip.Dispose()
+    $Stream.Dispose()
+  }
+  return $Archive
+}
+
+function New-UnsafeAttributeZip([string]$Name, [int]$ExternalAttributes) {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $Archive = Join-Path $TempRoot ($Name + ".zip")
+  $Stream = [IO.File]::Open($Archive, [IO.FileMode]::Create)
+  $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
+  try {
+    foreach ($EntryName in @(
+      "image2-mcp-0.2.1/install.sh",
+      "image2-mcp-0.2.1/install.ps1",
+      "image2-mcp-0.2.1/go.mod",
+      "image2-mcp-0.2.1/scripts/run-image2-mcp.ps1"
+    )) {
+      Add-TestZipEntry $Zip $EntryName
+    }
+    Add-TestZipEntry $Zip "image2-mcp-0.2.1/unsafe-link" $ExternalAttributes
   } finally {
     $Zip.Dispose()
     $Stream.Dispose()
@@ -95,8 +150,16 @@ function Set-TestHome([string]$HomePath) {
   [Environment]::SetEnvironmentVariable("LOCALAPPDATA", (Join-Path $HomePath "AppData\Local"), "Process")
 }
 
-function Invoke-TestBootstrap([string]$HomePath, [string]$Archive) {
+function Invoke-TestBootstrap(
+  [string]$HomePath,
+  [string]$Archive,
+  [switch]$WithoutHomeEnvironment
+) {
   Set-TestHome $HomePath
+  if ($WithoutHomeEnvironment) {
+    [Environment]::SetEnvironmentVariable("HOME", $null, "Process")
+    Assert-True ($null -eq [Environment]::GetEnvironmentVariable("HOME", "Process")) "HOME fixture was not removed"
+  }
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE", $Archive, "Process")
   $InputFile = Join-Path $TempRoot ("stdin-" + [Guid]::NewGuid().ToString("N"))
   try {
@@ -169,6 +232,10 @@ Invoke-AgentBootstrap
   $Fail = New-SourceZip "fail" "version-failing" "fail"
   $Invalid = New-SourceZip "invalid" "version-invalid" "invalid"
   $UnsafeCase = New-UnsafeCaseZip
+  $UnsafePrefixFirst = New-UnsafePrefixZip "unsafe-prefix-first"
+  $UnsafePrefixLast = New-UnsafePrefixZip "unsafe-prefix-last" -ChildFirst
+  $UnsafeSymlink = New-UnsafeAttributeZip "unsafe-symlink" -1577123840
+  $UnsafeReparse = New-UnsafeAttributeZip "unsafe-reparse" ([int][IO.FileAttributes]::ReparsePoint)
 
   # First install and clean repeat.
   $CleanHome = Join-Path $TempRoot "clean-home"
@@ -235,6 +302,25 @@ Invoke-AgentBootstrap
   Assert-True ($GitRepeat.Output.Contains("not active in the refreshed target")) "Git repeat omitted inactive-content warning"
   Assert-True (-not $GitRepeat.Output.Contains($SecretText)) "Git repeat leaked key"
 
+  # Git origin identity is byte-for-byte apart from PowerShell's removed record terminator.
+  $WhitespaceGitHome = Join-Path $TempRoot "whitespace-git-home"
+  $WhitespaceGitTarget = Join-Path $WhitespaceGitHome "AppData\Local\image2-mcp"
+  New-Item -ItemType Directory -Force -Path (Join-Path $WhitespaceGitTarget "scripts") | Out-Null
+  Copy-Item (Join-Path $Root "install.sh") (Join-Path $WhitespaceGitTarget "install.sh")
+  Copy-Item (Join-Path $Root "install.ps1") (Join-Path $WhitespaceGitTarget "install.ps1")
+  Copy-Item (Join-Path $Root "go.mod") (Join-Path $WhitespaceGitTarget "go.mod")
+  [IO.File]::WriteAllText((Join-Path $WhitespaceGitTarget "customer.txt"), "whitespace sentinel`n", (New-Object Text.UTF8Encoding($false)))
+  & git -C $WhitespaceGitTarget init -q
+  & git -C $WhitespaceGitTarget remote add origin https://github.com/Schyler0427/image2-mcp.git
+  & git -C $WhitespaceGitTarget config remote.origin.url "https://github.com/Schyler0427/image2-mcp.git "
+  $WhitespaceOrigin = [string](& git -C $WhitespaceGitTarget remote get-url origin)
+  Assert-True ($WhitespaceOrigin -ceq "https://github.com/Schyler0427/image2-mcp.git ") "Git fixture did not preserve origin whitespace"
+  $WhitespaceHash = (Get-FileHash (Join-Path $WhitespaceGitTarget "customer.txt") -Algorithm SHA256).Hash
+  $WhitespaceResult = Invoke-TestBootstrap $WhitespaceGitHome $V2
+  Assert-True ($WhitespaceResult.ExitCode -ne 0) "whitespace Git origin unexpectedly succeeded"
+  Assert-True ($WhitespaceResult.Output.Contains("origin does not match the fixed repository")) "whitespace Git origin failed for the wrong reason"
+  Assert-True (((Get-FileHash (Join-Path $WhitespaceGitTarget "customer.txt") -Algorithm SHA256).Hash) -eq $WhitespaceHash) "whitespace Git target changed"
+
   # Ambiguous marker and target reparse point are untouched refusals.
   $AmbiguousHome = Join-Path $TempRoot "ambiguous-home"
   $AmbiguousTarget = Join-Path $AmbiguousHome "AppData\Local\image2-mcp"
@@ -245,6 +331,23 @@ Invoke-AgentBootstrap
   $Ambiguous = Invoke-TestBootstrap $AmbiguousHome $V2
   Assert-True ($Ambiguous.ExitCode -ne 0) "ambiguous target unexpectedly succeeded"
   Assert-True (((Get-FileHash (Join-Path $AmbiguousTarget "customer.txt") -Algorithm SHA256).Hash) -eq $AmbiguousHash) "ambiguous target changed"
+
+  $BomHome = Join-Path $TempRoot "bom-marker-home"
+  $BomTarget = Join-Path $BomHome "AppData\Local\image2-mcp"
+  New-Item -ItemType Directory -Force -Path (Join-Path $BomTarget "scripts") | Out-Null
+  Copy-Item (Join-Path $Root "install.sh") (Join-Path $BomTarget "install.sh")
+  Copy-Item (Join-Path $Root "install.ps1") (Join-Path $BomTarget "install.ps1")
+  Copy-Item (Join-Path $Root "go.mod") (Join-Path $BomTarget "go.mod")
+  $BomEncoding = New-Object Text.UTF8Encoding($true)
+  $BomMarkerBytes = [byte[]]($BomEncoding.GetPreamble() + $BomEncoding.GetBytes("Schyler0427/image2-mcp"))
+  [IO.File]::WriteAllBytes((Join-Path $BomTarget ".image2-mcp-managed"), $BomMarkerBytes)
+  [IO.File]::WriteAllText((Join-Path $BomTarget "customer.txt"), "BOM sentinel`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-True ($BomMarkerBytes[0] -eq 0xEF) "BOM marker fixture has no BOM"
+  $BomHash = (Get-FileHash (Join-Path $BomTarget "customer.txt") -Algorithm SHA256).Hash
+  $BomResult = Invoke-TestBootstrap $BomHome $V2
+  Assert-True ($BomResult.ExitCode -ne 0) "BOM-prefixed marker unexpectedly succeeded"
+  Assert-True ($BomResult.Output.Contains("marker does not match the fixed repository")) "BOM-prefixed marker failed for the wrong reason"
+  Assert-True (((Get-FileHash (Join-Path $BomTarget "customer.txt") -Algorithm SHA256).Hash) -eq $BomHash) "BOM-prefixed marker target changed"
 
   $LinkHome = Join-Path $TempRoot "target-link-home"
   $ExternalTarget = Join-Path $LinkHome "external-target"
@@ -257,7 +360,7 @@ Invoke-AgentBootstrap
   Assert-True (((Get-Item -Force $LinkTarget).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) "target junction was replaced"
   Assert-Contains (Join-Path $ExternalTarget "customer.txt") "external sentinel" "target junction destination changed"
 
-  # Invalid and case-ambiguous ZIPs fail before target mutation.
+  # Invalid and structurally ambiguous ZIPs fail before target mutation.
   $SourceHome = Join-Path $TempRoot "source-home"
   $SourceFirst = Invoke-TestBootstrap $SourceHome $V1
   Assert-True ($SourceFirst.ExitCode -eq 0) "source setup failed"
@@ -265,7 +368,24 @@ Invoke-AgentBootstrap
   [IO.File]::WriteAllText((Join-Path $SourceTarget "customer.txt"), "rollback sentinel`n", (New-Object Text.UTF8Encoding($false)))
   $Unsafe = Invoke-TestBootstrap $SourceHome $UnsafeCase
   Assert-True ($Unsafe.ExitCode -ne 0) "case-ambiguous ZIP unexpectedly succeeded"
+  Assert-True ($Unsafe.Output.Contains("case-insensitive duplicate canonical path")) "case-ambiguous ZIP failed for the wrong reason"
   Assert-Contains (Join-Path $SourceTarget "customer.txt") "rollback sentinel" "unsafe ZIP changed target"
+  $UnsafePrefixFirstResult = Invoke-TestBootstrap $SourceHome $UnsafePrefixFirst
+  Assert-True ($UnsafePrefixFirstResult.ExitCode -ne 0) "file-first prefix-collision ZIP unexpectedly succeeded"
+  Assert-True ($UnsafePrefixFirstResult.Output.Contains("file/directory prefix collision")) "file-first prefix ZIP failed for the wrong reason"
+  Assert-Contains (Join-Path $SourceTarget "customer.txt") "rollback sentinel" "file-first prefix ZIP changed target"
+  $UnsafePrefixLastResult = Invoke-TestBootstrap $SourceHome $UnsafePrefixLast
+  Assert-True ($UnsafePrefixLastResult.ExitCode -ne 0) "child-first prefix-collision ZIP unexpectedly succeeded"
+  Assert-True ($UnsafePrefixLastResult.Output.Contains("file/directory prefix collision")) "child-first prefix ZIP failed for the wrong reason"
+  Assert-Contains (Join-Path $SourceTarget "customer.txt") "rollback sentinel" "child-first prefix ZIP changed target"
+  $UnsafeSymlinkResult = Invoke-TestBootstrap $SourceHome $UnsafeSymlink
+  Assert-True ($UnsafeSymlinkResult.ExitCode -ne 0) "symlink ZIP unexpectedly succeeded"
+  Assert-True ($UnsafeSymlinkResult.Output.Contains("symlink or reparse entry")) "symlink ZIP failed for the wrong reason"
+  Assert-Contains (Join-Path $SourceTarget "customer.txt") "rollback sentinel" "symlink ZIP changed target"
+  $UnsafeReparseResult = Invoke-TestBootstrap $SourceHome $UnsafeReparse
+  Assert-True ($UnsafeReparseResult.ExitCode -ne 0) "reparse ZIP unexpectedly succeeded"
+  Assert-True ($UnsafeReparseResult.Output.Contains("symlink or reparse entry")) "reparse ZIP failed for the wrong reason"
+  Assert-Contains (Join-Path $SourceTarget "customer.txt") "rollback sentinel" "reparse ZIP changed target"
   $InvalidResult = Invoke-TestBootstrap $SourceHome $Invalid
   Assert-True ($InvalidResult.ExitCode -ne 0) "invalid source ZIP unexpectedly succeeded"
   Assert-Contains (Join-Path $SourceTarget "customer.txt") "rollback sentinel" "invalid ZIP changed target"
@@ -287,6 +407,25 @@ Invoke-AgentBootstrap
   Assert-True (((Get-FileHash (Join-Path $RollbackHome ".codex\config.toml") -Algorithm SHA256).Hash) -eq $ConfigHash) "installer failure did not restore Codex config"
   Assert-True (@(Get-PreviousBackups (Split-Path -Parent $RollbackTarget)).Count -eq 0) "failed repeat left retained backup"
   Assert-True (-not $Rollback.Output.Contains($SecretText)) "installer failure leaked key"
+
+  # Standard Windows can omit HOME; bootstrap and child must share automatic $HOME.
+  $AutomaticHome = Join-Path $TempRoot "automatic-home"
+  $AutomaticConfig = Join-Path $AutomaticHome ".codex\config.toml"
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $AutomaticConfig) | Out-Null
+  [IO.File]::WriteAllText($AutomaticConfig, "automatic original config`n", (New-Object Text.UTF8Encoding($false)))
+  $AutomaticFirst = Invoke-TestBootstrap $AutomaticHome $V1 -WithoutHomeEnvironment
+  Assert-True ($AutomaticFirst.ExitCode -eq 0) "install without HOME environment failed"
+  Assert-Contains $AutomaticConfig "[mcp_servers.image2]" "child did not use automatic HOME"
+  $AutomaticTarget = Join-Path $AutomaticHome "AppData\Local\image2-mcp"
+  [IO.File]::WriteAllText((Join-Path $AutomaticTarget "customer.txt"), "automatic rollback content`n", (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText($AutomaticConfig, "automatic prior config`n", (New-Object Text.UTF8Encoding($false)))
+  $AutomaticConfigHash = (Get-FileHash $AutomaticConfig -Algorithm SHA256).Hash
+  $AutomaticRollback = Invoke-TestBootstrap $AutomaticHome $Fail -WithoutHomeEnvironment
+  Assert-True ($AutomaticRollback.ExitCode -ne 0) "failing install without HOME unexpectedly succeeded"
+  Assert-Contains (Join-Path $AutomaticTarget "version.txt") "version-one" "HOME-less rollback did not restore source"
+  Assert-Contains (Join-Path $AutomaticTarget "customer.txt") "automatic rollback content" "HOME-less rollback did not restore customer content"
+  Assert-True (((Get-FileHash $AutomaticConfig -Algorithm SHA256).Hash) -eq $AutomaticConfigHash) "HOME-less rollback did not restore automatic HOME config"
+  Assert-True (@(Get-PreviousBackups (Split-Path -Parent $AutomaticTarget)).Count -eq 0) "HOME-less failed repeat left retained backup"
 
   Write-Host "PASS: PowerShell Agent bootstrap helper"
 } finally {
