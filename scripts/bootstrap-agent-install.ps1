@@ -1,0 +1,477 @@
+function Test-AgentBootstrapReparsePoint([IO.FileSystemInfo]$Item) {
+  return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+function Get-AgentBootstrapFullPath([string]$Path) {
+  return [IO.Path]::GetFullPath($Path).TrimEnd([char[]]@('\', '/'))
+}
+
+function New-AgentBootstrapDirectory([string]$Parent, [string]$Prefix) {
+  for ($Attempt = 0; $Attempt -lt 10; $Attempt++) {
+    $Path = Join-Path $Parent ($Prefix + [Guid]::NewGuid().ToString("N"))
+    if (-not (Test-Path -LiteralPath $Path)) {
+      [IO.Directory]::CreateDirectory($Path) | Out-Null
+      return $Path
+    }
+  }
+  throw "could not allocate a transaction directory"
+}
+
+function Assert-AgentBootstrapPlainFile([string]$Path, [string]$Description) {
+  $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ($Item.PSIsContainer -or (Test-AgentBootstrapReparsePoint $Item)) {
+    throw "$Description is not a regular file"
+  }
+}
+
+function Assert-AgentBootstrapPlainDirectory([string]$Path, [string]$Description) {
+  $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if (-not $Item.PSIsContainer -or (Test-AgentBootstrapReparsePoint $Item)) {
+    throw "$Description is not a regular directory"
+  }
+}
+
+function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
+  if ($null -eq $Release -or $Release.tag_name -cne "v0.2.1") {
+    throw "public Release gate returned the wrong tag"
+  }
+  if ($Release.draft -isnot [bool] -or $Release.draft) {
+    throw "public v0.2.1 Release must not be a draft"
+  }
+  if ($Release.prerelease -isnot [bool] -or $Release.prerelease) {
+    throw "public v0.2.1 Release must not be a prerelease"
+  }
+
+  $AssetNames = @()
+  foreach ($Asset in @($Release.assets)) {
+    if ($null -ne $Asset -and $Asset.name -is [string]) {
+      $AssetNames += $Asset.name
+    }
+  }
+  foreach ($Name in $RequiredAssets) {
+    if (-not ($AssetNames -ccontains $Name)) {
+      throw "public v0.2.1 Release is missing required asset: $Name"
+    }
+  }
+}
+
+function Assert-AgentBootstrapExistingTarget(
+  [string]$Target,
+  [string]$RepositoryUrl,
+  [string]$RepositorySlug
+) {
+  $TargetItem = Get-Item -LiteralPath $Target -Force -ErrorAction Stop
+  if (-not $TargetItem.PSIsContainer) {
+    throw "managed target is not a directory"
+  }
+  if (Test-AgentBootstrapReparsePoint $TargetItem) {
+    throw "managed target must not be a reparse point"
+  }
+
+  Assert-AgentBootstrapPlainFile (Join-Path $Target "install.sh") "existing target install.sh"
+  Assert-AgentBootstrapPlainFile (Join-Path $Target "install.ps1") "existing target install.ps1"
+  Assert-AgentBootstrapPlainFile (Join-Path $Target "go.mod") "existing target go.mod"
+  Assert-AgentBootstrapPlainDirectory (Join-Path $Target "scripts") "existing target scripts directory"
+
+  $GitPath = Join-Path $Target ".git"
+  if (Test-Path -LiteralPath $GitPath) {
+    $Git = Get-Command git -CommandType Application -ErrorAction Stop
+    $Top = [string](& $Git.Source -C $Target rev-parse --show-toplevel 2>$null)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Top)) {
+      throw "existing Git target cannot be validated"
+    }
+    if (-not [string]::Equals(
+      (Get-AgentBootstrapFullPath $Top.Trim()),
+      (Get-AgentBootstrapFullPath $Target),
+      [StringComparison]::OrdinalIgnoreCase
+    )) {
+      throw "managed target is not the Git worktree root"
+    }
+    $Remote = [string](& $Git.Source -C $Target remote get-url origin 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $Remote.Trim() -cne $RepositoryUrl) {
+      throw "existing Git target origin does not match the fixed repository"
+    }
+    return
+  }
+
+  $MarkerPath = Join-Path $Target ".image2-mcp-managed"
+  Assert-AgentBootstrapPlainFile $MarkerPath "existing target managed marker"
+  if ([IO.File]::ReadAllText($MarkerPath) -cne $RepositorySlug) {
+    throw "existing archive target marker does not match the fixed repository"
+  }
+}
+
+function Assert-AgentBootstrapZip(
+  [string]$ArchivePath,
+  [string]$SourceRoot,
+  [string[]]$RequiredPaths
+) {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+  $Entries = @{}
+  $Zip = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+  try {
+    if ($Zip.Entries.Count -eq 0) {
+      throw "source ZIP is empty"
+    }
+
+    foreach ($Entry in $Zip.Entries) {
+      $Name = [string]$Entry.FullName
+      if ([string]::IsNullOrEmpty($Name)) {
+        throw "source ZIP contains an empty path"
+      }
+      foreach ($Character in $Name.ToCharArray()) {
+        if ([char]::IsControl($Character)) {
+          throw "source ZIP contains a control character in a path"
+        }
+      }
+      if ($Name.StartsWith("/") -or $Name.StartsWith("\") -or
+          [IO.Path]::IsPathRooted($Name) -or $Name -match '^[A-Za-z]:') {
+        throw "source ZIP contains an absolute or rooted path"
+      }
+
+      $Normalized = $Name.Replace('\', '/')
+      $IsTrailingDirectory = $Normalized.EndsWith("/")
+      $Canonical = $Normalized.TrimEnd('/')
+      if ([string]::IsNullOrEmpty($Canonical)) {
+        throw "source ZIP contains an empty canonical path"
+      }
+      $Segments = $Canonical.Split('/')
+      foreach ($Segment in $Segments) {
+        if ([string]::IsNullOrEmpty($Segment) -or $Segment -eq "." -or
+            $Segment -eq ".." -or $Segment.Contains(":")) {
+          throw "source ZIP contains a traversal or ambiguous path"
+        }
+      }
+      if ($Segments[0] -cne $SourceRoot) {
+        throw "source ZIP contains a path outside the expected root"
+      }
+
+      $ExternalAttributes = [int]$Entry.ExternalAttributes
+      $DosAttributes = $ExternalAttributes -band 0xFFFF
+      $UnixType = ($ExternalAttributes -shr 16) -band 0xF000
+      if (($DosAttributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0 -or
+          $UnixType -eq 0xA000) {
+        throw "source ZIP contains a symlink or reparse entry"
+      }
+      if ($UnixType -ne 0 -and $UnixType -ne 0x4000 -and $UnixType -ne 0x8000) {
+        throw "source ZIP contains an unsupported entry type"
+      }
+      $IsDirectory = $IsTrailingDirectory -or $Entry.Name.Length -eq 0 -or
+        (($DosAttributes -band [int][IO.FileAttributes]::Directory) -ne 0) -or
+        $UnixType -eq 0x4000
+
+      if ($Entries.ContainsKey($Canonical)) {
+        throw "source ZIP contains a case-insensitive duplicate canonical path"
+      }
+      $Entries[$Canonical] = [PSCustomObject]@{
+        Canonical = $Canonical
+        IsDirectory = [bool]$IsDirectory
+      }
+    }
+  } finally {
+    $Zip.Dispose()
+  }
+
+  foreach ($Info in $Entries.Values) {
+    $Parent = $Info.Canonical
+    while ($Parent.Contains("/")) {
+      $Parent = $Parent.Substring(0, $Parent.LastIndexOf("/"))
+      if ($Entries.ContainsKey($Parent) -and -not $Entries[$Parent].IsDirectory) {
+        throw "source ZIP contains a file/directory prefix collision"
+      }
+    }
+  }
+
+  foreach ($Required in $RequiredPaths) {
+    if (-not $Entries.ContainsKey($Required) -or
+        $Entries[$Required].Canonical -cne $Required -or
+        $Entries[$Required].IsDirectory) {
+      throw "source ZIP is missing required repository file: $Required"
+    }
+  }
+}
+
+function Assert-AgentBootstrapExtractedSource(
+  [string]$StagePath,
+  [string[]]$RequiredRelativePaths
+) {
+  Assert-AgentBootstrapPlainDirectory $StagePath "staged source root"
+  $StageItem = Get-Item -LiteralPath $StagePath -Force
+  $StageFullPath = Get-AgentBootstrapFullPath $StageItem.FullName
+  $StagePrefix = $StageFullPath + [IO.Path]::DirectorySeparatorChar
+
+  $Pending = New-Object System.Collections.Stack
+  $Pending.Push([IO.DirectoryInfo]$StageItem)
+  while ($Pending.Count -gt 0) {
+    $Directory = [IO.DirectoryInfo]$Pending.Pop()
+    foreach ($Item in $Directory.GetFileSystemInfos()) {
+      $FullPath = [IO.Path]::GetFullPath($Item.FullName)
+      if (-not $FullPath.StartsWith($StagePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "extracted source escaped the staging root"
+      }
+      if (Test-AgentBootstrapReparsePoint $Item) {
+        throw "extracted source contains a reparse point"
+      }
+      if ($Item -is [IO.DirectoryInfo]) {
+        $Pending.Push([IO.DirectoryInfo]$Item)
+      }
+    }
+  }
+
+  foreach ($RelativePath in $RequiredRelativePaths) {
+    $RequiredPath = Join-Path $StagePath ($RelativePath.Replace('/', '\'))
+    Assert-AgentBootstrapPlainFile $RequiredPath "staged source $RelativePath"
+    $RequiredFullPath = [IO.Path]::GetFullPath($RequiredPath)
+    if (-not $RequiredFullPath.StartsWith($StagePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "required staged source path escaped the staging root"
+    }
+  }
+}
+
+function New-AgentBootstrapConfigSnapshot([string]$ConfigPath, [string]$SnapshotPath) {
+  $State = [PSCustomObject]@{
+    Path = $ConfigPath
+    Existed = $false
+    Snapshot = $SnapshotPath
+    Attributes = [IO.FileAttributes]::Normal
+    CreationTimeUtc = [DateTime]::MinValue
+    LastWriteTimeUtc = [DateTime]::MinValue
+  }
+  if (-not (Test-Path -LiteralPath $ConfigPath)) {
+    return $State
+  }
+
+  $Item = Get-Item -LiteralPath $ConfigPath -Force
+  if ($Item.PSIsContainer -or (Test-AgentBootstrapReparsePoint $Item)) {
+    throw "Codex config path is not a regular file"
+  }
+  [IO.File]::Copy($ConfigPath, $SnapshotPath, $false)
+  $State.Existed = $true
+  $State.Attributes = $Item.Attributes
+  $State.CreationTimeUtc = $Item.CreationTimeUtc
+  $State.LastWriteTimeUtc = $Item.LastWriteTimeUtc
+  return $State
+}
+
+function Restore-AgentBootstrapConfig($State) {
+  if ($null -eq $State) {
+    return
+  }
+  if ($State.Existed) {
+    $Parent = Split-Path -Parent $State.Path
+    [IO.Directory]::CreateDirectory($Parent) | Out-Null
+    if ([IO.File]::Exists($State.Path)) {
+      [IO.File]::SetAttributes($State.Path, [IO.FileAttributes]::Normal)
+    } elseif (Test-Path -LiteralPath $State.Path) {
+      throw "cannot restore Codex config over a non-file path"
+    }
+    [IO.File]::Copy($State.Snapshot, $State.Path, $true)
+    [IO.File]::SetCreationTimeUtc($State.Path, $State.CreationTimeUtc)
+    [IO.File]::SetLastWriteTimeUtc($State.Path, $State.LastWriteTimeUtc)
+    [IO.File]::SetAttributes($State.Path, $State.Attributes)
+    return
+  }
+
+  if ([IO.File]::Exists($State.Path)) {
+    [IO.File]::SetAttributes($State.Path, [IO.FileAttributes]::Normal)
+    [IO.File]::Delete($State.Path)
+  } elseif (Test-Path -LiteralPath $State.Path) {
+    throw "cannot restore absent Codex config over a non-file path"
+  }
+}
+
+function Invoke-AgentBootstrapInstaller(
+  [string]$InstallerPath,
+  [string]$RepositorySlug
+) {
+  $PowerShell = Get-Command powershell.exe -CommandType Application -ErrorAction Stop
+  $Info = New-Object Diagnostics.ProcessStartInfo
+  $Info.FileName = $PowerShell.Source
+  $Info.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $InstallerPath + '" -KeyOnly'
+  $Info.WorkingDirectory = Split-Path -Parent $InstallerPath
+  $Info.UseShellExecute = $false
+  $Info.RedirectStandardOutput = $true
+  $Info.RedirectStandardError = $true
+  $Info.RedirectStandardInput = $false
+  $Info.CreateNoWindow = $true
+  $Info.EnvironmentVariables["IMAGE2_MCP_REPO"] = $RepositorySlug
+
+  $Process = New-Object Diagnostics.Process
+  $Process.StartInfo = $Info
+  try {
+    if (-not $Process.Start()) {
+      throw "key-only installer could not be started"
+    }
+    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    $Process.WaitForExit()
+    $Stdout = $StdoutTask.Result
+    $null = $StderrTask.Result
+    if ($Process.ExitCode -ne 0) {
+      throw "key-only installer failed; the previous target will be restored"
+    }
+    if (-not (($Stdout -split "`r?`n") -ccontains "Verification: OK")) {
+      throw "key-only installer did not report Verification: OK"
+    }
+  } finally {
+    $Process.Dispose()
+  }
+}
+
+function Restore-AgentBootstrapTransaction(
+  [string]$Target,
+  [string]$TransactionPath,
+  [string]$BackupRoot,
+  [bool]$NewActive,
+  [bool]$OldMoved,
+  $ConfigState
+) {
+  $Problems = New-Object 'System.Collections.Generic.List[string]'
+  if ($NewActive -and (Test-Path -LiteralPath $Target)) {
+    try {
+      $FailedTarget = Join-Path $TransactionPath "failed-target"
+      [IO.Directory]::Move($Target, $FailedTarget)
+    } catch {
+      $Problems.Add("could not deactivate failed target: $($_.Exception.Message)")
+    }
+  }
+  if ($OldMoved) {
+    try {
+      $Previous = Join-Path $BackupRoot "previous"
+      if (Test-Path -LiteralPath $Target) {
+        throw "failed target still occupies the managed path"
+      }
+      [IO.Directory]::Move($Previous, $Target)
+      [IO.Directory]::Delete($BackupRoot, $false)
+    } catch {
+      $Problems.Add("could not restore previous target: $($_.Exception.Message)")
+    }
+  } elseif ($BackupRoot -and (Test-Path -LiteralPath $BackupRoot)) {
+    try {
+      [IO.Directory]::Delete($BackupRoot, $false)
+    } catch {
+      $Problems.Add("could not remove failed backup directory: $($_.Exception.Message)")
+    }
+  }
+  try {
+    Restore-AgentBootstrapConfig $ConfigState
+  } catch {
+    $Problems.Add("could not restore Codex config: $($_.Exception.Message)")
+  }
+  if ($Problems.Count -gt 0) {
+    throw ($Problems -join "; ")
+  }
+}
+
+function Invoke-AgentBootstrap {
+  $ErrorActionPreference = "Stop"
+  $RepositoryUrl = "https://github.com/Schyler0427/image2-mcp.git"
+  $RepositorySlug = "Schyler0427/image2-mcp"
+  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1"
+  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.zip"
+  $SourceRoot = "image2-mcp-0.2.1"
+  $BaseUrl = "https://api.schyler.top"
+  $RequiredAssets = @(
+    "image2-mcp_darwin_arm64.tar.gz",
+    "image2-mcp_darwin_amd64.tar.gz",
+    "image2-mcp_linux_arm64.tar.gz",
+    "image2-mcp_linux_amd64.tar.gz",
+    "image2-mcp_windows_arm64.zip",
+    "image2-mcp_windows_amd64.zip"
+  )
+  $RequiredArchivePaths = @(
+    "$SourceRoot/install.sh",
+    "$SourceRoot/install.ps1",
+    "$SourceRoot/go.mod",
+    "$SourceRoot/scripts/run-image2-mcp.ps1"
+  )
+  $RequiredStagePaths = @(
+    "install.sh",
+    "install.ps1",
+    "go.mod",
+    "scripts/run-image2-mcp.ps1"
+  )
+
+  if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    throw "LOCALAPPDATA is required"
+  }
+  if ([string]::IsNullOrWhiteSpace($env:HOME)) {
+    throw "HOME is required"
+  }
+
+  $Parent = $env:LOCALAPPDATA
+  $Target = Join-Path $Parent "image2-mcp"
+  $ConfigPath = Join-Path (Join-Path $env:HOME ".codex") "config.toml"
+  [IO.Directory]::CreateDirectory($Parent) | Out-Null
+  $TransactionPath = New-AgentBootstrapDirectory $Parent ".image2-mcp-bootstrap."
+  $BackupRoot = $null
+  $OldMoved = $false
+  $NewActive = $false
+  $ConfigState = $null
+  $Repeat = $false
+
+  try {
+    $Release = Invoke-RestMethod -Uri $ReleaseApi
+    Assert-AgentBootstrapRelease $Release $RequiredAssets
+
+    $ExistingTarget = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
+    if ($null -ne $ExistingTarget) {
+      Assert-AgentBootstrapExistingTarget $Target $RepositoryUrl $RepositorySlug
+      $Repeat = $true
+    }
+
+    $ArchivePath = Join-Path $TransactionPath "source.zip"
+    Invoke-WebRequest -Uri $SourceUrl -OutFile $ArchivePath
+    Assert-AgentBootstrapZip $ArchivePath $SourceRoot $RequiredArchivePaths
+
+    $ExtractPath = Join-Path $TransactionPath "extract"
+    [IO.Directory]::CreateDirectory($ExtractPath) | Out-Null
+    [IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $ExtractPath)
+    $StagePath = Join-Path $ExtractPath $SourceRoot
+    Assert-AgentBootstrapExtractedSource $StagePath $RequiredStagePaths
+    [IO.File]::WriteAllText(
+      (Join-Path $StagePath ".image2-mcp-managed"),
+      $RepositorySlug,
+      (New-Object Text.UTF8Encoding($false))
+    )
+
+    $ConfigState = New-AgentBootstrapConfigSnapshot $ConfigPath (Join-Path $TransactionPath "config.toml.before")
+    if ($Repeat) {
+      $BackupRoot = New-AgentBootstrapDirectory $Parent "image2-mcp.backup."
+      [IO.Directory]::Move($Target, (Join-Path $BackupRoot "previous"))
+      $OldMoved = $true
+    }
+    [IO.Directory]::Move($StagePath, $Target)
+    $NewActive = $true
+
+    Invoke-AgentBootstrapInstaller (Join-Path $Target "install.ps1") $RepositorySlug
+    Write-Host "Verification: OK"
+    Write-Host "Install directory: $Target"
+    Write-Host "Binary: $(Join-Path $Target 'dist\image2-mcp.exe')"
+    Write-Host "Runner: $(Join-Path $Target 'scripts\run-image2-mcp.ps1')"
+    Write-Host "Codex config: $ConfigPath"
+    Write-Host "Base URL: $BaseUrl"
+    Write-Host "API Key configured (not displayed)."
+    if ($Repeat) {
+      Write-Host "Previous installation retained at: $(Join-Path $BackupRoot 'previous')"
+      Write-Host "Previous local and customer content is not active in the refreshed target."
+    }
+  } catch {
+    $OriginalMessage = $_.Exception.Message
+    try {
+      Restore-AgentBootstrapTransaction `
+        $Target $TransactionPath $BackupRoot $NewActive $OldMoved $ConfigState
+    } catch {
+      throw "bootstrap failed: $OriginalMessage; rollback failed: $($_.Exception.Message)"
+    }
+    throw "bootstrap failed: $OriginalMessage"
+  } finally {
+    if (Test-Path -LiteralPath $TransactionPath) {
+      Remove-Item -LiteralPath $TransactionPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+if ($MyInvocation.InvocationName -ne ".") {
+  Invoke-AgentBootstrap
+}
