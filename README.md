@@ -7,6 +7,16 @@ Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个
 
 两个工具都会把接口返回的 `b64_json` 解码成 PNG 文件并保存到本地。
 
+## 安装
+
+```text
+请安装并配置 Image2 MCP：读取并严格执行 https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/AGENT_INSTALL.md，除 API Key 外不要向我询问其他配置，完成安装和验证后再结束。
+```
+
+客户只需输入 API Key。
+
+## 维护者和高级安装
+
 默认图片网关：
 
 ```text
@@ -24,7 +34,7 @@ https://api.schyler.top
 `/v1/images/edits` 结尾，程序会自动避免重复拼接 `/v1`，并推导出另一个
 图片端点。
 
-## 前置条件
+### 前置条件
 
 - 已安装 Codex
 - 有可用的 `OPENAI_IMAGE_API_KEY`
@@ -38,7 +48,7 @@ https://api.schyler.top
 - 本机有 Go：运行测试并从源码编译
 - 本机没有 Go：自动从 GitHub Releases 下载当前系统的预编译二进制
 
-## 从 GitHub 拉取后安装
+### 从 GitHub 拉取后安装
 
 推荐使用交互式安装。安装过程中输入的 key 会保存到本地 `.env.local`，
 不会写入 Codex 配置，也不会提交到 GitHub。
@@ -112,14 +122,15 @@ Windows：
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-## 本地配置
+### 本地配置
 
 交互式安装会生成 `.env.local`：
 
 ```dotenv
 OPENAI_IMAGE_BASE_URL="https://api.schyler.top"
-OPENAI_IMAGE_API_KEY="sk-your-key"
 ```
+
+API Key 会保存在本地 `.env.local`，不在文档示例中展示。
 
 Codex 配置里不会直接保存 key。启动 MCP 时，runner 脚本会读取本地
 `.env.local`。
@@ -136,7 +147,7 @@ Windows：
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Interactive
 ```
 
-## Codex MCP 配置
+### Codex MCP 配置
 
 安装脚本会自动写入 `~/.codex/config.toml`。
 
@@ -177,7 +188,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -ForceConfig
 `--force-config` / `-ForceConfig` 会删除旧的 `[mcp_servers.image2]` 配置块，
 再写入当前项目路径对应的新配置。
 
-## 手动构建
+### 手动构建
 
 macOS / Linux：
 
@@ -191,7 +202,7 @@ Windows：
 go build -o .\dist\image2-mcp.exe .\cmd\image2-mcp
 ```
 
-## 发布 GitHub Release
+### 发布 GitHub Release
 
 仓库包含 GitHub Actions Release workflow。推送 `v*` tag 后会自动构建：
 
@@ -224,7 +235,7 @@ image2-mcp_windows_amd64.zip
 
 如果用户本机没有 Go，安装脚本会根据系统自动下载这些产物。
 
-## 真实生图测试
+### 真实生图测试
 
 macOS / Linux：
 

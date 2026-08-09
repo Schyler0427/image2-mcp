@@ -2,4 +2,5 @@ dist/
 output/
 .env
 .env.local
+.image2-mcp-managed
 .DS_Store
