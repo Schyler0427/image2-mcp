@@ -294,7 +294,8 @@ Invoke-AgentBootstrap
   [IO.File]::WriteAllText((Join-Path $GitTarget "CasePath.txt"), "old case content`n", (New-Object Text.UTF8Encoding($false)))
   New-Item -ItemType Junction -Path (Join-Path $GitTarget "customer-link") -Target (Join-Path $GitTarget "ordinary") | Out-Null
   $GitRepeat = Invoke-TestBootstrap $GitHome $V2
-  Assert-True ($GitRepeat.ExitCode -eq 0) "Git repeat failed"
+  Assert-True (-not $GitRepeat.Output.Contains($SecretText)) "Git repeat leaked key"
+  Assert-True ($GitRepeat.ExitCode -eq 0) "Git repeat failed: $($GitRepeat.Output)"
   $GitBackups = @(Get-PreviousBackups (Split-Path -Parent $GitTarget))
   Assert-True ($GitBackups.Count -eq 1) "Git repeat did not retain backup"
   $GitBackup = $GitBackups[0].FullName
@@ -310,7 +311,6 @@ Invoke-AgentBootstrap
   Assert-True (Test-Path (Join-Path $GitTarget "customer-prefix\child.txt")) "new prefix path was not activated"
   Assert-Contains (Join-Path $GitTarget "casepath.txt") "new case content" "new case path was not activated"
   Assert-True ($GitRepeat.Output.Contains("not active in the refreshed target")) "Git repeat omitted inactive-content warning"
-  Assert-True (-not $GitRepeat.Output.Contains($SecretText)) "Git repeat leaked key"
 
   # Git origin identity is byte-for-byte apart from PowerShell's removed record terminator.
   $WhitespaceGitHome = Join-Path $TempRoot "whitespace-git-home"
