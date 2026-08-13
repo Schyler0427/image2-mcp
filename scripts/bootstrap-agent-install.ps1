@@ -492,7 +492,8 @@ function Invoke-AgentBootstrap {
         -NewMoveIntent $NewMoveIntent -ConfigState $ConfigState
     } catch {
       $RetainTransaction = $true
-      throw "bootstrap failed: $OriginalMessage; rollback failed: $($_.Exception.Message); Retained transaction evidence: $TransactionPath"
+      Write-Host "Retained transaction evidence: $TransactionPath"
+      throw "bootstrap failed: $OriginalMessage; rollback failed: $($_.Exception.Message)"
     }
     throw "bootstrap failed: $OriginalMessage"
   } finally {
