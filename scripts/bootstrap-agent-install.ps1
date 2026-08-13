@@ -328,32 +328,49 @@ function Invoke-AgentBootstrapInstaller(
 function Restore-AgentBootstrapTransaction(
   [string]$Target,
   [string]$TransactionPath,
+  [string]$StagePath,
   [string]$BackupRoot,
-  [bool]$NewActive,
-  [bool]$OldMoved,
+  [bool]$Repeat,
+  [bool]$OldMoveIntent,
+  [bool]$NewMoveIntent,
   $ConfigState
 ) {
   $Problems = New-Object 'System.Collections.Generic.List[string]'
-  if ($NewActive -and (Test-Path -LiteralPath $Target)) {
+  $Previous = if ($BackupRoot) { Join-Path $BackupRoot "previous" } else { $null }
+  $StageExists = $StagePath -and (Test-Path -LiteralPath $StagePath)
+  $TargetExists = Test-Path -LiteralPath $Target
+  $PreviousExists = $Previous -and (Test-Path -LiteralPath $Previous)
+  $NewMoved = $NewMoveIntent -and -not $StageExists -and $TargetExists
+
+  if ($NewMoved) {
     try {
       $FailedTarget = Join-Path $TransactionPath "failed-target"
+      if (Test-Path -LiteralPath $FailedTarget) {
+        throw "failed-target evidence path already exists"
+      }
       [IO.Directory]::Move($Target, $FailedTarget)
     } catch {
       $Problems.Add("could not deactivate failed target: $($_.Exception.Message)")
     }
+  } elseif ($NewMoveIntent -and -not $StageExists -and -not $TargetExists) {
+    $Problems.Add("could not locate the staged or activated target")
   }
-  if ($OldMoved) {
+
+  if ($Repeat -and $PreviousExists) {
     try {
-      $Previous = Join-Path $BackupRoot "previous"
       if (Test-Path -LiteralPath $Target) {
         throw "failed target still occupies the managed path"
       }
       [IO.Directory]::Move($Previous, $Target)
-      [IO.Directory]::Delete($BackupRoot, $false)
     } catch {
       $Problems.Add("could not restore previous target: $($_.Exception.Message)")
     }
-  } elseif ($BackupRoot -and (Test-Path -LiteralPath $BackupRoot)) {
+  } elseif ($Repeat -and $OldMoveIntent -and -not (Test-Path -LiteralPath $Target)) {
+    $Problems.Add("could not locate the previous target")
+  }
+
+  if ($BackupRoot -and (Test-Path -LiteralPath $BackupRoot) -and
+      -not (Test-Path -LiteralPath $Previous)) {
     try {
       [IO.Directory]::Delete($BackupRoot, $false)
     } catch {
@@ -413,10 +430,12 @@ function Invoke-AgentBootstrap {
   [IO.Directory]::CreateDirectory($Parent) | Out-Null
   $TransactionPath = New-AgentBootstrapDirectory $Parent ".image2-mcp-bootstrap."
   $BackupRoot = $null
-  $OldMoved = $false
-  $NewActive = $false
+  $StagePath = $null
+  $OldMoveIntent = $false
+  $NewMoveIntent = $false
   $ConfigState = $null
   $Repeat = $false
+  $RetainTransaction = $false
 
   try {
     $Release = Invoke-RestMethod -Uri $ReleaseApi
@@ -446,11 +465,11 @@ function Invoke-AgentBootstrap {
     $ConfigState = New-AgentBootstrapConfigSnapshot $ConfigPath (Join-Path $TransactionPath "config.toml.before")
     if ($Repeat) {
       $BackupRoot = New-AgentBootstrapDirectory $Parent "image2-mcp.backup."
+      $OldMoveIntent = $true
       [IO.Directory]::Move($Target, (Join-Path $BackupRoot "previous"))
-      $OldMoved = $true
     }
+    $NewMoveIntent = $true
     [IO.Directory]::Move($StagePath, $Target)
-    $NewActive = $true
 
     Invoke-AgentBootstrapInstaller (Join-Path $Target "install.ps1") $RepositorySlug
     Write-Host "Verification: OK"
@@ -468,13 +487,16 @@ function Invoke-AgentBootstrap {
     $OriginalMessage = $_.Exception.Message
     try {
       Restore-AgentBootstrapTransaction `
-        $Target $TransactionPath $BackupRoot $NewActive $OldMoved $ConfigState
+        -Target $Target -TransactionPath $TransactionPath -StagePath $StagePath `
+        -BackupRoot $BackupRoot -Repeat $Repeat -OldMoveIntent $OldMoveIntent `
+        -NewMoveIntent $NewMoveIntent -ConfigState $ConfigState
     } catch {
-      throw "bootstrap failed: $OriginalMessage; rollback failed: $($_.Exception.Message)"
+      $RetainTransaction = $true
+      throw "bootstrap failed: $OriginalMessage; rollback failed: $($_.Exception.Message); Retained transaction evidence: $TransactionPath"
     }
     throw "bootstrap failed: $OriginalMessage"
   } finally {
-    if (Test-Path -LiteralPath $TransactionPath) {
+    if (-not $RetainTransaction -and (Test-Path -LiteralPath $TransactionPath)) {
       Remove-Item -LiteralPath $TransactionPath -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
