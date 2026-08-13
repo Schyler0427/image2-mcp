@@ -43,6 +43,12 @@ if ([string]::IsNullOrWhiteSpace($FixtureKey)) { exit 65 }
 New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot "dist"), (Join-Path $HOME ".codex") | Out-Null
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot "dist\image2-mcp.exe"), "fixture binary`n", (New-Object Text.UTF8Encoding($false)))
 [IO.File]::WriteAllText((Join-Path $HOME ".codex\config.toml"), "[mcp_servers.image2]`ncommand = `"fixture`"`n", (New-Object Text.UTF8Encoding($false)))
+if (Test-Path (Join-Path $PSScriptRoot ".fixture-config-path-fail")) {
+  $FixtureConfig = Join-Path $HOME ".codex\config.toml"
+  Remove-Item -LiteralPath $FixtureConfig -Force
+  New-Item -ItemType Directory -Path $FixtureConfig | Out-Null
+  exit 42
+}
 if (Test-Path (Join-Path $PSScriptRoot ".fixture-install-fail")) { exit 41 }
 Write-Host "Verification: OK"
 '@, (New-Object Text.UTF8Encoding($false)))
@@ -56,6 +62,9 @@ Write-Host "Verification: OK"
     }
     "fail" {
       [IO.File]::WriteAllText((Join-Path $Tree ".fixture-install-fail"), "", (New-Object Text.UTF8Encoding($false)))
+    }
+    "config-path-fail" {
+      [IO.File]::WriteAllText((Join-Path $Tree ".fixture-config-path-fail"), "", (New-Object Text.UTF8Encoding($false)))
     }
     "invalid" {
       Remove-Item -Force (Join-Path $Tree "go.mod")
@@ -230,6 +239,7 @@ Invoke-AgentBootstrap
   $V1 = New-SourceZip "v1" "version-one"
   $V2 = New-SourceZip "v2" "version-two" "collision"
   $Fail = New-SourceZip "fail" "version-failing" "fail"
+  $ConfigPathFail = New-SourceZip "config-path-fail" "version-config-path-failing" "config-path-fail"
   $Invalid = New-SourceZip "invalid" "version-invalid" "invalid"
   $UnsafeCase = New-UnsafeCaseZip
   $UnsafePrefixFirst = New-UnsafePrefixZip "unsafe-prefix-first"
@@ -408,6 +418,33 @@ Invoke-AgentBootstrap
   Assert-True (@(Get-PreviousBackups (Split-Path -Parent $RollbackTarget)).Count -eq 0) "failed repeat left retained backup"
   Assert-True (-not $Rollback.Output.Contains($SecretText)) "installer failure leaked key"
 
+  # Incomplete config recovery retains transaction evidence instead of deleting it.
+  $RecoveryHome = Join-Path $TempRoot "recovery-evidence-home"
+  $RecoveryConfig = Join-Path $RecoveryHome ".codex\config.toml"
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $RecoveryConfig) | Out-Null
+  [IO.File]::WriteAllText($RecoveryConfig, "recovery setup config`n", (New-Object Text.UTF8Encoding($false)))
+  $RecoveryFirst = Invoke-TestBootstrap $RecoveryHome $V1
+  Assert-True ($RecoveryFirst.ExitCode -eq 0) "recovery evidence setup failed"
+  $RecoveryTarget = Join-Path $RecoveryHome "AppData\Local\image2-mcp"
+  [IO.File]::WriteAllText((Join-Path $RecoveryTarget "customer.txt"), "recovery customer content`n", (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText($RecoveryConfig, "recovery prior config`n", (New-Object Text.UTF8Encoding($false)))
+  $Recovery = Invoke-TestBootstrap $RecoveryHome $ConfigPathFail
+  Assert-True ($Recovery.ExitCode -ne 0) "config-path rollback failure unexpectedly succeeded"
+  Assert-True ($Recovery.Output.Contains("rollback failed")) "config-path failure omitted rollback error"
+  Assert-True (-not $Recovery.Output.Contains($SecretText)) "config-path rollback failure leaked key"
+  Assert-Contains (Join-Path $RecoveryTarget "version.txt") "version-one" "config-path failure did not restore old target"
+  Assert-Contains (Join-Path $RecoveryTarget "customer.txt") "recovery customer content" "config-path failure did not restore customer content"
+  Assert-True (Test-Path $RecoveryConfig -PathType Container) "config-path failure did not retain blocking config directory"
+  $RetainedTransactions = @(Get-ChildItem -LiteralPath (Split-Path -Parent $RecoveryTarget) -Directory -Force -Filter ".image2-mcp-bootstrap.*")
+  Assert-True ($RetainedTransactions.Count -eq 1) "config-path failure did not retain exactly one transaction"
+  $RetainedTransaction = $RetainedTransactions[0].FullName
+  Assert-True ($Recovery.Output.Contains("Retained transaction evidence:")) "config-path failure omitted retained transaction report"
+  Assert-True ($Recovery.Output.Contains($RetainedTransaction)) "config-path failure reported the wrong transaction path"
+  Assert-True (Test-Path (Join-Path $RetainedTransaction "config.toml.before") -PathType Leaf) "config snapshot evidence was deleted"
+  Assert-True (Test-Path (Join-Path $RetainedTransaction "failed-target") -PathType Container) "failed target evidence was deleted"
+  Assert-Contains (Join-Path $RetainedTransaction "failed-target\version.txt") "version-config-path-failing" "failed target evidence is wrong"
+  Assert-True (@(Get-PreviousBackups (Split-Path -Parent $RecoveryTarget)).Count -eq 0) "restored old target left a previous backup"
+
   # Standard Windows can omit HOME; bootstrap and child must share automatic $HOME.
   $AutomaticHome = Join-Path $TempRoot "automatic-home"
   $AutomaticConfig = Join-Path $AutomaticHome ".codex\config.toml"
@@ -426,6 +463,85 @@ Invoke-AgentBootstrap
   Assert-Contains (Join-Path $AutomaticTarget "customer.txt") "automatic rollback content" "HOME-less rollback did not restore customer content"
   Assert-True (((Get-FileHash $AutomaticConfig -Algorithm SHA256).Hash) -eq $AutomaticConfigHash) "HOME-less rollback did not restore automatic HOME config"
   Assert-True (@(Get-PreviousBackups (Split-Path -Parent $AutomaticTarget)).Count -eq 0) "HOME-less failed repeat left retained backup"
+
+  # Direct recovery state cases prove intent is reconciled against actual paths.
+  . $Helper
+
+  $DirectNoMoveRoot = Join-Path $TempRoot "direct-old-not-moved"
+  $DirectNoMoveTransaction = Join-Path $DirectNoMoveRoot "transaction"
+  $DirectNoMoveStage = Join-Path $DirectNoMoveTransaction "stage"
+  $DirectNoMoveTarget = Join-Path $DirectNoMoveRoot "image2-mcp"
+  $DirectNoMoveBackup = Join-Path $DirectNoMoveRoot "image2-mcp.backup.test"
+  New-Item -ItemType Directory -Force -Path $DirectNoMoveStage, $DirectNoMoveTarget, $DirectNoMoveBackup | Out-Null
+  [IO.File]::WriteAllText((Join-Path $DirectNoMoveTarget "identity.txt"), "old-not-moved", (New-Object Text.UTF8Encoding($false)))
+  Restore-AgentBootstrapTransaction -Target $DirectNoMoveTarget -TransactionPath $DirectNoMoveTransaction `
+    -StagePath $DirectNoMoveStage -BackupRoot $DirectNoMoveBackup -Repeat $true `
+    -OldMoveIntent $true -NewMoveIntent $false -ConfigState $null
+  Assert-Contains (Join-Path $DirectNoMoveTarget "identity.txt") "old-not-moved" "old-move failure treated old target as new"
+  Assert-True (-not (Test-Path $DirectNoMoveBackup)) "old-move failure left empty backup root"
+  Assert-True (-not (Test-Path (Join-Path $DirectNoMoveTransaction "failed-target"))) "old-move failure moved old target into failed evidence"
+
+  $DirectOldMovedRoot = Join-Path $TempRoot "direct-old-moved"
+  $DirectOldMovedTransaction = Join-Path $DirectOldMovedRoot "transaction"
+  $DirectOldMovedStage = Join-Path $DirectOldMovedTransaction "stage"
+  $DirectOldMovedTarget = Join-Path $DirectOldMovedRoot "image2-mcp"
+  $DirectOldMovedBackup = Join-Path $DirectOldMovedRoot "image2-mcp.backup.test"
+  New-Item -ItemType Directory -Force -Path $DirectOldMovedStage, (Join-Path $DirectOldMovedBackup "previous") | Out-Null
+  [IO.File]::WriteAllText((Join-Path $DirectOldMovedBackup "previous\identity.txt"), "old-moved", (New-Object Text.UTF8Encoding($false)))
+  Restore-AgentBootstrapTransaction -Target $DirectOldMovedTarget -TransactionPath $DirectOldMovedTransaction `
+    -StagePath $DirectOldMovedStage -BackupRoot $DirectOldMovedBackup -Repeat $true `
+    -OldMoveIntent $true -NewMoveIntent $false -ConfigState $null
+  Assert-Contains (Join-Path $DirectOldMovedTarget "identity.txt") "old-moved" "old-moved state did not restore target"
+  Assert-True (-not (Test-Path $DirectOldMovedBackup)) "old-moved state left backup root"
+
+  $DirectBothMovedRoot = Join-Path $TempRoot "direct-both-moved"
+  $DirectBothMovedTransaction = Join-Path $DirectBothMovedRoot "transaction"
+  $DirectBothMovedStage = Join-Path $DirectBothMovedTransaction "stage"
+  $DirectBothMovedTarget = Join-Path $DirectBothMovedRoot "image2-mcp"
+  $DirectBothMovedBackup = Join-Path $DirectBothMovedRoot "image2-mcp.backup.test"
+  New-Item -ItemType Directory -Force -Path $DirectBothMovedTransaction, $DirectBothMovedTarget, (Join-Path $DirectBothMovedBackup "previous") | Out-Null
+  [IO.File]::WriteAllText((Join-Path $DirectBothMovedTarget "identity.txt"), "new-moved", (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $DirectBothMovedBackup "previous\identity.txt"), "old-both-moved", (New-Object Text.UTF8Encoding($false)))
+  Restore-AgentBootstrapTransaction -Target $DirectBothMovedTarget -TransactionPath $DirectBothMovedTransaction `
+    -StagePath $DirectBothMovedStage -BackupRoot $DirectBothMovedBackup -Repeat $true `
+    -OldMoveIntent $true -NewMoveIntent $true -ConfigState $null
+  Assert-Contains (Join-Path $DirectBothMovedTarget "identity.txt") "old-both-moved" "both-moved state did not restore old target"
+  Assert-Contains (Join-Path $DirectBothMovedTransaction "failed-target\identity.txt") "new-moved" "both-moved state did not retain failed target"
+  Assert-True (-not (Test-Path $DirectBothMovedBackup)) "both-moved state left backup root"
+
+  $DirectConfigRoot = Join-Path $TempRoot "direct-config-restore-failure"
+  $DirectConfigTransaction = Join-Path $DirectConfigRoot "transaction"
+  $DirectConfigStage = Join-Path $DirectConfigTransaction "stage"
+  $DirectConfigTarget = Join-Path $DirectConfigRoot "image2-mcp"
+  $DirectConfigBackup = Join-Path $DirectConfigRoot "image2-mcp.backup.test"
+  $DirectConfigPath = Join-Path $DirectConfigRoot ".codex\config.toml"
+  $DirectConfigSnapshot = Join-Path $DirectConfigTransaction "config.toml.before"
+  New-Item -ItemType Directory -Force -Path $DirectConfigTransaction, $DirectConfigTarget, `
+    (Join-Path $DirectConfigBackup "previous"), $DirectConfigPath | Out-Null
+  [IO.File]::WriteAllText((Join-Path $DirectConfigTarget "identity.txt"), "new-config-failure", (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $DirectConfigBackup "previous\identity.txt"), "old-config-failure", (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText($DirectConfigSnapshot, "prior config", (New-Object Text.UTF8Encoding($false)))
+  $DirectConfigState = [PSCustomObject]@{
+    Path = $DirectConfigPath
+    Existed = $true
+    Snapshot = $DirectConfigSnapshot
+    Attributes = [IO.FileAttributes]::Normal
+    CreationTimeUtc = [DateTime]::UtcNow
+    LastWriteTimeUtc = [DateTime]::UtcNow
+  }
+  $DirectConfigError = $null
+  try {
+    Restore-AgentBootstrapTransaction -Target $DirectConfigTarget -TransactionPath $DirectConfigTransaction `
+      -StagePath $DirectConfigStage -BackupRoot $DirectConfigBackup -Repeat $true `
+      -OldMoveIntent $true -NewMoveIntent $true -ConfigState $DirectConfigState
+  } catch {
+    $DirectConfigError = $_.Exception.Message
+  }
+  Assert-True ($DirectConfigError.Contains("could not restore Codex config")) "direct config failure did not report incomplete recovery"
+  Assert-Contains (Join-Path $DirectConfigTarget "identity.txt") "old-config-failure" "direct config failure did not restore old target"
+  Assert-Contains (Join-Path $DirectConfigTransaction "failed-target\identity.txt") "new-config-failure" "direct config failure deleted failed target evidence"
+  Assert-True (Test-Path $DirectConfigSnapshot -PathType Leaf) "direct config failure deleted config snapshot evidence"
+  Assert-True (-not (Test-Path $DirectConfigBackup)) "direct config failure left backup after target restoration"
 
   Write-Host "PASS: PowerShell Agent bootstrap helper"
 } finally {
