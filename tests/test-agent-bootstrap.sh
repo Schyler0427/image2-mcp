@@ -183,6 +183,20 @@ make_repeated_slash_archive() {
   printf '%s\n' "$archive"
 }
 
+make_case_ambiguous_archive() {
+  local base_archive="$1" plain="$tmp/sources/case-ambiguous.tar"
+  local archive="$tmp/sources/case-ambiguous.tar.gz"
+  local upper_tree="$tmp/sources/case-upper" lower_tree="$tmp/sources/case-lower"
+  gzip -dc "$base_archive" >"$plain"
+  mkdir -p "$upper_tree/image2-mcp-0.2.1" "$lower_tree/image2-mcp-0.2.1"
+  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.2.1/CasePath.txt"
+  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.2.1/casepath.txt"
+  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.2.1/CasePath.txt
+  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.2.1/casepath.txt
+  gzip -c "$plain" >"$archive"
+  printf '%s\n' "$archive"
+}
+
 run_bootstrap() {
   local home="$1" archive="$2" output="$3"
   printf '%s\n' 'fixture-key-redacted' |
@@ -213,6 +227,13 @@ symlink_archive="$(make_source_archive symlink version-symlink symlink)"
 invalid_archive="$(make_source_archive invalid version-invalid invalid)"
 canonical_duplicate_archive="$(make_canonical_duplicate_archive "$v1_archive")"
 repeated_slash_archive="$(make_repeated_slash_archive "$v1_archive")"
+case_ambiguous_archive="$(make_case_ambiguous_archive "$v1_archive")"
+
+# Case-ambiguous archives are rejected before first-install target mutation.
+case_ambiguous_home="$tmp/case-ambiguous-home"
+run_bootstrap_expect_failure "$case_ambiguous_home" "$case_ambiguous_archive" "$tmp/source-case-ambiguous.log"
+assert_contains "$tmp/source-case-ambiguous.log" 'case-insensitive duplicate canonical path'
+[[ ! -e "$case_ambiguous_home/.local/share/image2-mcp" ]] || fail 'case-ambiguous archive created a target'
 
 # Handled signals terminate with their conventional status instead of resuming.
 signal_home="$tmp/signal-home"

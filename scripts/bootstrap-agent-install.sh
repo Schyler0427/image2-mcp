@@ -125,7 +125,7 @@ validate_existing_target() {
 
 validate_archive() {
   local archive="$1" entries="$txn/archive-entries" seen="$txn/archive-seen"
-  local directories="$txn/archive-directories" entry canonical type parent prior
+  local directories="$txn/archive-directories" entry canonical canonical_key type parent prior
   : >"$seen"
   : >"$directories"
   tar -tzf "$archive" >"$entries" || fail 'source archive cannot be listed'
@@ -141,6 +141,7 @@ validate_archive() {
       *) canonical="$entry" ;;
     esac
     [[ -n "$canonical" ]] || fail 'source archive contains a noncanonical path'
+    canonical_key="$(LC_ALL=C printf '%s' "$canonical" | tr '[:upper:]' '[:lower:]')"
     case "$canonical" in
       "$readonly_source_root"|"$readonly_source_root"/*) ;;
       *) fail 'source archive contains a path outside the expected root' ;;
@@ -148,8 +149,8 @@ validate_archive() {
     case "/$canonical/" in
       */../*|*/./*) fail 'source archive contains a traversal path' ;;
     esac
-    if grep -Fqx -- "$canonical" "$seen"; then
-      fail 'source archive contains a duplicate canonical path'
+    if grep -Fqx -- "$canonical_key" "$seen"; then
+      fail 'source archive contains a case-insensitive duplicate canonical path'
     fi
     type="$(tar -tvzf "$archive" "$entry" 2>/dev/null | sed -n '1s/^\(.\).*$/\1/p')"
     case "$type" in
@@ -159,14 +160,14 @@ validate_archive() {
     if [[ "$type" == '-' ]]; then
       while IFS= read -r prior; do
         case "$prior" in
-          "$canonical"/*) fail 'source archive contains a file/directory prefix collision' ;;
+          "$canonical_key"/*) fail 'source archive contains a file/directory prefix collision' ;;
         esac
       done <"$seen"
     else
-      printf '%s\n' "$canonical" >>"$directories"
+      printf '%s\n' "$canonical_key" >>"$directories"
     fi
-    printf '%s\n' "$canonical" >>"$seen"
-    parent="$canonical"
+    printf '%s\n' "$canonical_key" >>"$seen"
+    parent="$canonical_key"
     while [[ "$parent" == */* ]]; do
       parent="${parent%/*}"
       if grep -Fqx -- "$parent" "$seen"; then
