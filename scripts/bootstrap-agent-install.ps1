@@ -75,7 +75,7 @@ function Assert-AgentBootstrapExistingTarget(
 
   $GitPath = Join-Path $Target ".git"
   if (Test-Path -LiteralPath $GitPath) {
-    $Git = Get-Command git -CommandType Application -ErrorAction Stop
+    $Git = @(Get-Command git -CommandType Application -ErrorAction Stop)[0]
     $Top = [string](& $Git.Source -C $Target rev-parse --show-toplevel 2>$null)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Top)) {
       throw "existing Git target cannot be validated"
