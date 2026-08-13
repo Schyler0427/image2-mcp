@@ -21,10 +21,13 @@ jobs:
         run: |
           bash tests/test-install-key-only.sh
           bash tests/test-agent-install-contract.sh
+          bash tests/test-agent-bootstrap.sh
       - name: Test PowerShell installer
         if: runner.os == 'Windows'
         shell: powershell
-        run: .\tests\test-install-key-only.ps1
+        run: |
+          ./tests/test-install-key-only.ps1
+          ./tests/test-agent-bootstrap.ps1
 
   build:
     needs: installer-tests

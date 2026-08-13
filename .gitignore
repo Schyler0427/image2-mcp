@@ -3,5 +3,4 @@ output/
 .env
 .env.local
 .image2-mcp-managed
-.image2-mcp-source-manifest
 .DS_Store
