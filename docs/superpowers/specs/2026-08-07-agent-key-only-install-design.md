@@ -2,7 +2,7 @@
 
 Date: 2026-08-07
 
-Status: approved design, pending implementation
+Status: approved design, implemented; public `v0.2.1` Release pending
 
 ## Goal
 
@@ -56,11 +56,12 @@ The feature has four parts with separate responsibilities.
 
 ### `AGENT_INSTALL.md`
 
-A new root-level `AGENT_INSTALL.md` is the stable, customer-facing Agent
-contract. It contains deterministic macOS/Linux and Windows procedures. The
-Agent detects the platform, obtains the repository, invokes the correct
-key-only installer, handles its single secret input, and checks the final
-status. It does not invent values or offer configuration choices.
+A root-level `AGENT_INSTALL.md` is the stable, customer-facing Agent contract.
+It tells the Agent to detect the platform, download the exact repository-owned
+bootstrap helper from the fixed repository, attach one secret input stream,
+and require the helper's final verification. The Agent does not clone, update,
+extract, merge, or replace repository content itself, and it does not invent
+values or offer configuration choices.
 
 The file must be usable when the customer's machine has Codex, terminal access,
 and network access but has neither Git nor Go.
@@ -92,12 +93,31 @@ Windows Release asset, writes the fixed gateway, replaces the `image2` MCP
 namespace, and performs the same non-billable verification. Existing PowerShell
 options remain available outside key-only mode.
 
+### Bootstrap helpers
+
+`scripts/bootstrap-agent-install.sh` and
+`scripts/bootstrap-agent-install.ps1` are the only implementations of the
+Agent bootstrap transaction. They enforce the fixed public `v0.2.1` Release
+and all six assets before target mutation or key input, download and validate
+the pinned tag source archive, prove ownership of an existing target, stage a
+complete replacement, snapshot Codex configuration, and invoke the platform
+key-only installer with the real child stdin/stdout/stderr attached.
+
+An accepted existing target is never updated in place. The helper moves the
+complete target to a unique sibling backup and activates the complete staged
+source. A successful repeat retains that previous target as recovery material;
+customer files are not selectively merged into the refreshed target. A failed
+install restores the full target and Codex config. If automatic recovery or
+cleanup is incomplete, the helper retains and reports the transaction, backup,
+and failed-target evidence rather than deleting it.
+
 ### GitHub Release workflow
 
-The existing tag-triggered Release workflow remains the binary source. The
-implementation is not customer-ready merely because this workflow exists. A
-new `v0.2.1` tag must successfully publish all six expected assets before
-`AGENT_INSTALL.md` is advertised:
+The Release workflow is triggered only by the exact `v0.2.1` tag. Before its
+six build jobs, Linux and Windows jobs run the key-only installer and bootstrap
+contract suites. The implementation is not customer-ready merely because this
+workflow exists: `v0.2.1` must successfully publish all six expected assets
+before `AGENT_INSTALL.md` is advertised:
 
 ```text
 image2-mcp_darwin_arm64.tar.gz
@@ -117,42 +137,42 @@ binary installed by the `v0.2.1` gate.
 
 The Agent performs these steps without configuration questions:
 
-1. Verify that Codex is installed, a supported shell is available, and GitHub is
-   reachable.
-2. Detect one of the supported targets: macOS or Linux on `arm64`/`amd64`, or
-   Windows on `ARM64`/`AMD64`.
-3. Use the fixed install directory. The directory is managed by this installer;
-   the Agent does not ask the customer for another path.
-4. If Git is available, clone the fixed repository for a first install. For an
-   existing clean checkout of the same repository, update it with a fast-forward
-   operation. Do not reset or discard local changes.
-5. If Git is unavailable, download the GitHub default-branch source archive to a
-   temporary directory and extract it into the fixed install directory. Set
-   `IMAGE2_MCP_REPO=Schyler0427/image2-mcp` for the installer because an archive
-   has no Git remote metadata.
-6. On a repeated archive-based install, first stage and validate the complete new
-   source tree in a temporary sibling directory. Treat the existing target as
-   managed only when it contains the expected Image2 MCP repository files and a
-   bootstrap marker containing the fixed repository slug. Preserve
-   `.env.local` and `output/`, swap repository-owned content as a set, and keep
-   the old tree as a temporary rollback copy until installer verification
-   succeeds. If the identity check fails, stop instead of deleting unknown
-   files.
-7. Start `./install.sh --key-only` on macOS/Linux or
+1. Verify that Codex, a supported shell, and a supported architecture are
+   present. Git and Go are not prerequisites.
+2. Download the exact Bash or PowerShell bootstrap helper named in
+   `AGENT_INSTALL.md` to a new temporary file. Windows PowerShell 5.1 downloads
+   use basic parsing and enable TLS 1.2 without removing newer enabled
+   protocols.
+3. Start that helper without arguments and keep its real standard input,
+   output, and error streams attached.
+4. The helper validates the fixed public non-draft/non-prerelease `v0.2.1`
+   Release and all six exact assets before inspecting or mutating the target and
+   before reading the key.
+5. The helper uses the fixed target and accepts an existing directory only when
+   it proves either an exact, standard non-bare Git worktree root with the fixed
+   origin or a byte-exact managed marker. Git configs with includes, worktree
+   overrides, worktree-specific config, or bare mode are ambiguous and rejected
+   before persistent mutation.
+6. The helper downloads the fixed `v0.2.1` source archive, validates every path
+   and required repository file, stages the complete tree, and snapshots Codex
+   config before activating anything.
+7. On a repeat, the helper moves the complete old target to a unique sibling
+   backup and activates the complete staged target. It does not merge selected
+   `.env.local`, `output/`, Git, untracked, ignored, or customer paths into the
+   new target.
+8. The helper starts `./install.sh --key-only` on macOS/Linux or
    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-   -KeyOnly` on Windows.
-8. Supply exactly one key line to the installer's standard input. With an
-   attached terminal, the installer reads it with echo disabled. If the Agent
-   must collect it in chat, it asks once and passes the value through the
-   running process's standard input, never through a command argument or a
-   printed environment assignment.
-9. Wait for the installer's verification to finish. Do not report success from
-   an archive download or binary extraction alone.
+   -KeyOnly` on Windows. The Agent asks once for the key only after the real
+   child prompt appears and passes one line through the attached stdin stream,
+   never through a command argument or printed environment assignment.
+9. The helper requires local installer verification. On success it removes its
+   transaction staging state but retains and reports the previous sibling
+   backup. On failure it restores the complete previous target and Codex config;
+   incomplete recovery or cleanup retains and reports all evidence paths.
 
-The bootstrap creates or refreshes the local identity marker only after it has
-validated the staged source. Temporary bootstrap directories are removed on
-success. On failure they are removed after the prior managed installation has
-been restored, so a refresh cannot leave a partially replaced installation.
+The bootstrap writes the local managed marker only into a validated staged
+archive target. The Agent deletes only its downloaded helper file and never a
+reported previous-installation or retained-evidence path.
 
 ## One-Input Semantics
 
@@ -229,6 +249,12 @@ renamed only after validation. If parsing or replacement cannot be completed
 unambiguously, the installer fails and leaves the original file unchanged. It
 must not solve an ambiguous file by replacing all of `config.toml`.
 
+Before key or persistent installation writes, both installers reject conflicting
+TOML forms that cannot be safely replaced without a complete parser. These
+include a top-level value assigned to `mcp_servers`, a top-level dotted key under
+`mcp_servers.image2`, or an `image2` dotted/inline assignment inside an existing
+`[mcp_servers]` table. The refusal does not print the customer's config value.
+
 ## Release Download
 
 Key-only mode selects an asset from normalized platform values:
@@ -247,6 +273,10 @@ directory, extracted, checked for the expected binary name, and only then moved
 into `dist/`. An HTTP error, missing asset, invalid archive, missing executable,
 or unsupported platform is fatal. The previous working binary, when present,
 is preserved until the replacement is ready.
+
+Windows PowerShell 5.1 web calls use `-UseBasicParsing`. Before GitHub access,
+the scripts OR TLS 1.2 into the process protocol flags; they do not replace or
+disable protocols already enabled by the host.
 
 ## Verification
 
@@ -285,8 +315,10 @@ question when it encounters:
 - a Release that lacks the detected platform asset;
 - an unsafe or locally modified existing install directory that cannot be
   refreshed without data loss;
+- ambiguous Git ownership metadata such as includes, bare mode, worktree
+  overrides, or worktree-specific config;
 - inability to write or secure `.env.local`;
-- an ambiguous or unwritable Codex configuration;
+- an ambiguous, conflicting dotted/inline, or unwritable Codex configuration;
 - a binary, runner, environment, or configuration verification failure.
 
 An error message identifies the failed stage and safe retry action. It does not
@@ -309,7 +341,13 @@ network-billed image call:
   commands.
 - replacement of a root `image2` table and its descendant tables while
   preserving unrelated TOML content.
+- untouched refusal for conflicting top-level or `[mcp_servers]` dotted/inline
+  Image2 definitions.
 - first install and repeat install bootstrap paths with and without Git.
+- untouched refusal for bare, included, worktree-overridden, and worktree-
+  specific Git metadata while retaining Git-free standard-worktree support.
+- Windows PowerShell 5.1 basic-parsing and additive TLS 1.2 behavior, including
+  a native GitHub HTTPS probe before release.
 - successful non-billable runner/config verification and representative failure
   cases.
 - the existing Go unit test suite and a local build before publishing the tag.
@@ -335,14 +373,21 @@ published customer sentence on machines without relying on Go.
 - Automatically pushing a tag or publishing a Release before implementation and
   tests have been reviewed.
 
-## Delivery Order
+## Implementation and Release Order
 
-1. Add failing installer/configuration tests for the approved behavior.
-2. Add `--key-only` and `-KeyOnly` while retaining legacy modes.
-3. Add `AGENT_INSTALL.md` and update customer-facing README instructions.
-4. Run unit, installer, shell/static, and local bootstrap verification.
-5. Merge the installation work into the fork's default branch.
-6. Create and push `v0.2.1` from the reviewed default-branch commit.
-7. Verify the public Release and all six assets.
-8. Run clean macOS and Windows Agent-driven acceptance installations.
-9. Publish the fixed one-sentence customer instruction.
+The key-only installers, bootstrap helpers, Agent guide, fixed Release workflow,
+and local/native fixture suites are implemented on the reviewed feature branch.
+The remaining release sequence is intentionally separate:
+
+1. Complete local Bash/Go verification and native Windows PowerShell 5.1
+   verification on the final feature-branch tree.
+2. Obtain a clean whole-branch review with no Critical or Important findings.
+3. Merge the reviewed feature branch into the fork's default branch.
+4. Create and push the exact `v0.2.1` tag from that reviewed default-branch
+   commit.
+5. Verify the public non-draft/non-prerelease Release and all six assets.
+6. Run clean macOS and Windows Agent-driven acceptance installations.
+7. Publish the fixed one-sentence customer instruction.
+
+This design does not authorize an Agent to update the default branch, create a
+tag, or publish a Release during implementation or review.
