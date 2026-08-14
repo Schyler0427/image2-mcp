@@ -130,24 +130,66 @@ validate_existing_target() {
   if [[ -e "$target/.git" ]]; then
     [[ -d "$target/.git" && ! -L "$target/.git" ]] || fail 'existing Git metadata is not a regular directory'
     [[ -f "$target/.git/config" && ! -L "$target/.git/config" ]] || fail 'existing Git target has no readable config'
-    local in_origin=0 remote_count=0 line trimmed value
+    [[ ! -e "$target/.git/config.worktree" && ! -L "$target/.git/config.worktree" ]] ||
+      fail 'existing Git target has unsupported ownership configuration'
+    local in_origin=0 remote_count=0 line trimmed value section section_lower key key_lower
+    local bare_count=0 bare_value='' git_bin git_toplevel target_toplevel git_toplevel_normalized
     while IFS= read -r line || [[ -n "$line" ]]; do
       trimmed="${line#"${line%%[![:space:]]*}"}"
       case "$trimmed" in
-        '[remote "origin"]') in_origin=1 ;;
-        \[*\]) in_origin=0 ;;
-        url=*|url[[:space:]]*=*)
-          if [[ "$in_origin" -eq 1 ]]; then
-            value="${trimmed#*=}"
-            value="${value#"${value%%[![:space:]]*}"}"
-            remote="$value"
-            remote_count=$((remote_count + 1))
+        \[*)
+          [[ "$trimmed" == *']' ]] || fail 'existing Git target has unsupported ownership configuration'
+          section="${trimmed#\[}"
+          section="${section%\]}"
+          section_lower="$(LC_ALL=C printf '%s' "$section" | tr '[:upper:]' '[:lower:]')"
+          case "$section_lower" in
+            include*) fail 'existing Git target has unsupported ownership configuration' ;;
+          esac
+          if [[ "$trimmed" == '[remote "origin"]' ]]; then
+            in_origin=1
+          else
+            in_origin=0
           fi
           ;;
       esac
+      [[ "$trimmed" != \#* && "$trimmed" != \;* && -n "$trimmed" ]] || continue
+      key="${trimmed%%[[:space:]=]*}"
+      key_lower="$(LC_ALL=C printf '%s' "$key" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$section_lower" == 'core' ]]; then
+        case "$key_lower" in
+          worktree) fail 'existing Git target has unsupported ownership configuration' ;;
+          bare)
+            bare_count=$((bare_count + 1))
+            value="${trimmed#*=}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            bare_value="$(LC_ALL=C printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+            ;;
+        esac
+      elif [[ "$section_lower" == 'extensions' && "$key_lower" == 'worktreeconfig' ]]; then
+        fail 'existing Git target has unsupported ownership configuration'
+      fi
+      if [[ "$in_origin" -eq 1 && "$key_lower" == 'url' && "$trimmed" == *=* ]]; then
+        value="${trimmed#*=}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        remote="$value"
+        remote_count=$((remote_count + 1))
+      fi
     done <"$target/.git/config"
+    [[ "$bare_count" -le 1 && ( "$bare_count" -eq 0 || "$bare_value" == 'false' ) ]] ||
+      fail 'existing Git target has unsupported ownership configuration'
     [[ "$remote_count" -eq 1 ]] || fail 'existing Git target has no unique origin remote'
     [[ "$remote" == "$readonly_repo_url" ]] || fail 'existing Git target origin does not match the fixed repository'
+    git_bin="$(command -v git 2>/dev/null || true)"
+    if [[ -n "$git_bin" && -x "$git_bin" ]] && "$git_bin" --version >/dev/null 2>&1; then
+      if ! git_toplevel="$("$git_bin" -C "$target" rev-parse --show-toplevel 2>/dev/null)"; then
+        fail 'existing Git target ownership cannot be proven'
+      fi
+      target_toplevel="$(cd "$target" && pwd -P)" || fail 'existing Git target ownership cannot be proven'
+      git_toplevel_normalized="$(cd "$git_toplevel" 2>/dev/null && pwd -P)" ||
+        fail 'existing Git target ownership cannot be proven'
+      [[ "$git_toplevel_normalized" == "$target_toplevel" ]] ||
+        fail 'existing Git target ownership cannot be proven'
+    fi
     return
   fi
 

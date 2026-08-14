@@ -36,7 +36,9 @@ $SavedEnvironment = @{}
 foreach ($Name in @(
   "HOME", "USERPROFILE", "LOCALAPPDATA", "BOOTSTRAP_FIXTURE_HELPER",
   "BOOTSTRAP_FIXTURE_RELEASE_JSON", "BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE",
-  "BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP", "IMAGE2_MCP_REPO"
+  "BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP", "BOOTSTRAP_FIXTURE_BLOCK_GIT",
+  "BOOTSTRAP_FIXTURE_GIT_TOPLEVEL", "BOOTSTRAP_FIXTURE_REAL_GIT",
+  "BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER", "IMAGE2_MCP_REPO", "PATH"
 )) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
@@ -184,7 +186,11 @@ function Invoke-TestBootstrap(
   [string]$HomePath,
   [string]$Archive,
   [switch]$WithoutHomeEnvironment,
-  [switch]$FailTransactionCleanup
+  [switch]$FailTransactionCleanup,
+  [string]$GitWrapperPath,
+  [switch]$BlockGit,
+  [string]$GitTopLevel,
+  [string]$SourceDownloadMarker
 ) {
   Set-TestHome $HomePath
   if ($WithoutHomeEnvironment) {
@@ -197,6 +203,17 @@ function Invoke-TestBootstrap(
     $(if ($FailTransactionCleanup) { "1" } else { $null }),
     "Process"
   )
+  [Environment]::SetEnvironmentVariable(
+    "BOOTSTRAP_FIXTURE_BLOCK_GIT",
+    $(if ($BlockGit) { "1" } else { $null }),
+    "Process"
+  )
+  [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_GIT_TOPLEVEL", $GitTopLevel, "Process")
+  [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER", $SourceDownloadMarker, "Process")
+  $OriginalPath = [Environment]::GetEnvironmentVariable("PATH", "Process")
+  if ($GitWrapperPath) {
+    [Environment]::SetEnvironmentVariable("PATH", ($GitWrapperPath + ";" + $OriginalPath), "Process")
+  }
   $InputFile = Join-Path $TempRoot ("stdin-" + [Guid]::NewGuid().ToString("N"))
   try {
     [IO.File]::WriteAllText($InputFile, ($SecretText + "`r`nignored`r`n"), (New-Object Text.UTF8Encoding($false)))
@@ -217,6 +234,7 @@ function Invoke-TestBootstrap(
     return [PSCustomObject]@{ ExitCode = $Process.ExitCode; Output = $Stdout + $Stderr }
   } finally {
     Remove-Item -Force -ErrorAction SilentlyContinue $InputFile
+    [Environment]::SetEnvironmentVariable("PATH", $OriginalPath, "Process")
   }
 }
 
@@ -226,6 +244,37 @@ function Get-PreviousBackups([string]$Parent) {
     $Previous = Join-Path $_.FullName "previous"
     if (Test-Path $Previous) { Get-Item -LiteralPath $Previous }
   })
+}
+
+function New-GitOwnershipTarget([string]$Target) {
+  New-Item -ItemType Directory -Force -Path (Join-Path $Target "scripts") | Out-Null
+  Copy-Item (Join-Path $Root "install.sh") (Join-Path $Target "install.sh")
+  Copy-Item (Join-Path $Root "install.ps1") (Join-Path $Target "install.ps1")
+  Copy-Item (Join-Path $Root "go.mod") (Join-Path $Target "go.mod")
+  [IO.File]::WriteAllText((Join-Path $Target "customer.txt"), "ownership sentinel`n", (New-Object Text.UTF8Encoding($false)))
+  & git -C $Target init -q
+  & git -C $Target config user.email fixture@example.invalid
+  & git -C $Target config user.name fixture
+  & git -C $Target remote add origin https://github.com/Schyler0427/image2-mcp.git
+  & git -C $Target add .
+  & git -C $Target commit -qm ownership-fixture
+}
+
+function Assert-GitOwnershipRefusal(
+  [string]$Name,
+  [string]$HomePath,
+  [string]$Archive,
+  [string]$GitWrapperPath
+) {
+  $Target = Join-Path $HomePath "AppData\Local\image2-mcp"
+  $SourceDownloadMarker = Join-Path $HomePath ".fixture-source-download"
+  $SentinelHash = (Get-FileHash (Join-Path $Target "customer.txt") -Algorithm SHA256).Hash
+  $Result = Invoke-TestBootstrap $HomePath $Archive -GitWrapperPath $GitWrapperPath -BlockGit -SourceDownloadMarker $SourceDownloadMarker
+  Assert-True ($Result.ExitCode -ne 0) "$Name Git target unexpectedly succeeded"
+  Assert-True ($Result.Output.Contains("existing Git target")) "$Name failed for the wrong reason: $($Result.Output)"
+  Assert-True (-not (Test-Path $SourceDownloadMarker)) "$Name downloaded the source before refusing"
+  Assert-True (((Get-FileHash (Join-Path $Target "customer.txt") -Algorithm SHA256).Hash) -eq $SentinelHash) "$Name changed the target"
+  Assert-True (-not $Result.Output.Contains("OPENAI_IMAGE_API_KEY:")) "$Name reached key input"
 }
 
 try {
@@ -253,6 +302,9 @@ function Invoke-RestMethod {
 }
 function Invoke-WebRequest {
   param([string]$Uri, [string]$OutFile)
+  if (-not [string]::IsNullOrEmpty($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER)) {
+    [IO.File]::WriteAllText($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER, "downloaded", (New-Object Text.UTF8Encoding($false)))
+  }
   Copy-Item -LiteralPath $env:BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE -Destination $OutFile
 }
 function Remove-Item {
@@ -283,6 +335,20 @@ try {
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", "fixture-parent-repository", "Process")
   $HelperText = [IO.File]::ReadAllText($Helper)
   Assert-True (-not $HelperText.Contains("BOOTSTRAP_FIXTURE_")) "production helper contains test fixture override"
+
+  $GitWrapperPath = Join-Path $TempRoot "git-wrapper"
+  New-Item -ItemType Directory -Force -Path $GitWrapperPath | Out-Null
+  $RealGit = (Get-Command git.exe -CommandType Application -ErrorAction Stop).Source
+  [IO.File]::WriteAllText((Join-Path $GitWrapperPath "git.cmd"), @'
+@echo off
+if "%BOOTSTRAP_FIXTURE_BLOCK_GIT%"=="1" exit /b 97
+if not "%BOOTSTRAP_FIXTURE_GIT_TOPLEVEL%"=="" (
+  echo %BOOTSTRAP_FIXTURE_GIT_TOPLEVEL%
+  exit /b 0
+)
+call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
+'@, (New-Object Text.UTF8Encoding($false)))
+  [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_REAL_GIT", $RealGit, "Process")
 
   $V1 = New-SourceZip "v1" "version-one"
   $V2 = New-SourceZip "v2" "version-two" "collision"
@@ -392,6 +458,65 @@ try {
   Assert-True ($WhitespaceResult.ExitCode -ne 0) "whitespace Git origin unexpectedly succeeded"
   Assert-True ($WhitespaceResult.Output.Contains("origin does not match the fixed repository")) "whitespace Git origin failed for the wrong reason"
   Assert-True (((Get-FileHash (Join-Path $WhitespaceGitTarget "customer.txt") -Algorithm SHA256).Hash) -eq $WhitespaceHash) "whitespace Git target changed"
+
+  # The no-Git parser refuses configuration that can redirect Git ownership
+  # before downloading source, reading a key, or moving the target.
+  $BareHome = Join-Path $TempRoot "git-bare-home"
+  $BareTarget = Join-Path $BareHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $BareTarget
+  [IO.File]::AppendAllText((Join-Path $BareTarget ".git\config"), "`n[core]`n`tbare = true`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "core.bare=true" $BareHome $V2 $GitWrapperPath
+
+  $DuplicateBareHome = Join-Path $TempRoot "git-duplicate-bare-home"
+  $DuplicateBareTarget = Join-Path $DuplicateBareHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $DuplicateBareTarget
+  [IO.File]::AppendAllText((Join-Path $DuplicateBareTarget ".git\config"), "`n[core]`n`tbare = false`n`tbare = false`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "duplicate core.bare" $DuplicateBareHome $V2 $GitWrapperPath
+
+  $WorktreeHome = Join-Path $TempRoot "git-worktree-home"
+  $WorktreeTarget = Join-Path $WorktreeHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $WorktreeTarget
+  [IO.File]::AppendAllText((Join-Path $WorktreeTarget ".git\config"), "`n[core]`n`tworktree = ../elsewhere`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "core.worktree" $WorktreeHome $V2 $GitWrapperPath
+
+  $IncludeHome = Join-Path $TempRoot "git-include-home"
+  $IncludeTarget = Join-Path $IncludeHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $IncludeTarget
+  [IO.File]::AppendAllText((Join-Path $IncludeTarget ".git\config"), "`n[include]`n`tpath = ../untrusted.gitconfig`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "include section" $IncludeHome $V2 $GitWrapperPath
+
+  $IncludeIfHome = Join-Path $TempRoot "git-include-if-home"
+  $IncludeIfTarget = Join-Path $IncludeIfHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $IncludeIfTarget
+  [IO.File]::AppendAllText((Join-Path $IncludeIfTarget ".git\config"), "`n[includeIf `"gitdir:../elsewhere/`"]`n`tpath = ../untrusted.gitconfig`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "includeIf section" $IncludeIfHome $V2 $GitWrapperPath
+
+  $ConfigWorktreeHome = Join-Path $TempRoot "git-config-worktree-home"
+  $ConfigWorktreeTarget = Join-Path $ConfigWorktreeHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $ConfigWorktreeTarget
+  [IO.File]::WriteAllText((Join-Path $ConfigWorktreeTarget ".git\config.worktree"), "[core]`n`tworktree = ../elsewhere`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "config.worktree" $ConfigWorktreeHome $V2 $GitWrapperPath
+
+  $WorktreeConfigHome = Join-Path $TempRoot "git-worktree-config-home"
+  $WorktreeConfigTarget = Join-Path $WorktreeConfigHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $WorktreeConfigTarget
+  [IO.File]::AppendAllText((Join-Path $WorktreeConfigTarget ".git\config"), "`n[extensions]`n`tworktreeConfig = true`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "extensions.worktreeConfig" $WorktreeConfigHome $V2 $GitWrapperPath
+
+  # A usable Git executable must prove normalized top-level equality instead of
+  # falling back to config-only proof when rev-parse points elsewhere.
+  $TopLevelHome = Join-Path $TempRoot "git-toplevel-home"
+  $TopLevelTarget = Join-Path $TopLevelHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $TopLevelTarget
+  $TopLevelMarker = Join-Path $TopLevelHome ".fixture-source-download"
+  $TopLevelHash = (Get-FileHash (Join-Path $TopLevelTarget "customer.txt") -Algorithm SHA256).Hash
+  $TopLevelResult = Invoke-TestBootstrap $TopLevelHome $V2 -GitWrapperPath $GitWrapperPath `
+    -GitTopLevel (Join-Path $TempRoot "not-the-managed-target") -SourceDownloadMarker $TopLevelMarker
+  Assert-True ($TopLevelResult.ExitCode -ne 0) "mismatched Git top-level unexpectedly succeeded"
+  Assert-True ($TopLevelResult.Output.Contains("existing Git target")) "mismatched Git top-level failed for the wrong reason: $($TopLevelResult.Output)"
+  Assert-True (-not (Test-Path $TopLevelMarker)) "mismatched Git top-level downloaded source before refusing"
+  Assert-True (((Get-FileHash (Join-Path $TopLevelTarget "customer.txt") -Algorithm SHA256).Hash) -eq $TopLevelHash) "mismatched Git top-level changed the target"
+  Assert-True (-not $TopLevelResult.Output.Contains("OPENAI_IMAGE_API_KEY:")) "mismatched Git top-level reached key input"
 
   # Ambiguous marker and target reparse point are untouched refusals.
   $AmbiguousHome = Join-Path $TempRoot "ambiguous-home"

@@ -3,7 +3,12 @@ function Test-AgentBootstrapReparsePoint([IO.FileSystemInfo]$Item) {
 }
 
 function Get-AgentBootstrapFullPath([string]$Path) {
-  return [IO.Path]::GetFullPath($Path).TrimEnd([char[]]@('\', '/'))
+  $FullPath = [IO.Path]::GetFullPath($Path)
+  $Root = [IO.Path]::GetPathRoot($FullPath)
+  if ($FullPath.Length -gt $Root.Length) {
+    return $FullPath.TrimEnd([char[]]@('\', '/'))
+  }
+  return $FullPath
 }
 
 function New-AgentBootstrapDirectory([string]$Parent, [string]$Prefix) {
@@ -78,29 +83,86 @@ function Assert-AgentBootstrapExistingTarget(
     Assert-AgentBootstrapPlainDirectory $GitPath "existing Git metadata"
     $GitConfig = Join-Path $GitPath "config"
     Assert-AgentBootstrapPlainFile $GitConfig "existing Git config"
+    if (Test-Path -LiteralPath (Join-Path $GitPath "config.worktree")) {
+      throw "existing Git target has unsupported ownership configuration"
+    }
     $InOrigin = $false
     $RemoteCount = 0
     $Remote = $null
+    $Section = $null
+    $BareCount = 0
+    $BareValue = $null
     foreach ($Line in [IO.File]::ReadAllLines($GitConfig)) {
       $Trimmed = $Line.TrimStart()
-      if ($Trimmed -ceq '[remote "origin"]') {
-        $InOrigin = $true
-        continue
-      }
       if ($Trimmed.StartsWith("[")) {
-        $InOrigin = $false
+        if ($Trimmed -notmatch '^\[([^\]]+)\]$') {
+          throw "existing Git target has unsupported ownership configuration"
+        }
+        $Section = $Matches[1].ToLowerInvariant()
+        if ($Section.StartsWith("include")) {
+          throw "existing Git target has unsupported ownership configuration"
+        }
+        $InOrigin = ($Trimmed -ceq '[remote "origin"]')
         continue
       }
-      if ($InOrigin -and $Trimmed -match '^url\s*=\s*(.*)$') {
+      if ([string]::IsNullOrWhiteSpace($Trimmed) -or $Trimmed.StartsWith("#") -or $Trimmed.StartsWith(";")) {
+        continue
+      }
+      if ($Trimmed -notmatch '^([^\s=]+)(?:\s*=\s*(.*))?$') {
+        continue
+      }
+      $Key = $Matches[1].ToLowerInvariant()
+      $Value = if ($Trimmed.Contains("=")) { $Matches[2] } else { $null }
+      if ($Section -ceq "core") {
+        if ($Key -ceq "worktree") {
+          throw "existing Git target has unsupported ownership configuration"
+        }
+        if ($Key -ceq "bare") {
+          $BareCount++
+          $BareValue = if ($null -eq $Value) { $null } else { $Value.Trim().ToLowerInvariant() }
+        }
+      }
+      if ($Section -ceq "extensions" -and $Key -ceq "worktreeconfig") {
+        throw "existing Git target has unsupported ownership configuration"
+      }
+      if ($InOrigin -and $Key -ceq "url" -and $Trimmed -match '^url\s*=\s*(.*)$') {
         $Remote = $Matches[1]
         $RemoteCount++
       }
+    }
+    if ($BareCount -gt 1 -or ($BareCount -eq 1 -and $BareValue -cne "false")) {
+      throw "existing Git target has unsupported ownership configuration"
     }
     if ($RemoteCount -ne 1) {
       throw "existing Git target has no unique origin remote"
     }
     if ($Remote -cne $RepositoryUrl) {
       throw "existing Git target origin does not match the fixed repository"
+    }
+    $GitCommand = @(Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)[0]
+    $GitUsable = $false
+    if ($null -ne $GitCommand) {
+      try {
+        & $GitCommand.Source --version | Out-Null
+        $GitUsable = ($LASTEXITCODE -eq 0)
+      } catch {
+        $GitUsable = $false
+      }
+    }
+    if ($GitUsable) {
+      try {
+        $GitTopLevelOutput = @(& $GitCommand.Source -C $Target rev-parse --show-toplevel)
+        if ($LASTEXITCODE -ne 0 -or $GitTopLevelOutput.Count -ne 1) {
+          throw "rev-parse did not return one top-level path"
+        }
+        $TargetFullPath = Get-AgentBootstrapFullPath $Target
+        $GitTopLevelFullPath = Get-AgentBootstrapFullPath ([string]$GitTopLevelOutput[0])
+      } catch {
+        throw "existing Git target ownership cannot be proven"
+      }
+      if ($GitTopLevelFullPath -ine $TargetFullPath) {
+        throw "existing Git target ownership cannot be proven"
+      }
     }
     return
   }

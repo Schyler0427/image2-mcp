@@ -49,6 +49,9 @@ case "$url" in
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
     ;;
   https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.tar.gz)
+    if [[ -n "${BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER:-}" ]]; then
+      : >"$BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER"
+    fi
     cp "$BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE" "$out"
     if [[ -f "$HOME/.fixture-signal-int-on-source" ]]; then
       kill -INT "$PPID"
@@ -67,6 +70,11 @@ cat >"$fakebin/git" <<'GIT'
 set -euo pipefail
 if [[ "${BOOTSTRAP_FIXTURE_BLOCK_GIT:-0}" == 1 ]]; then
   exit 97
+fi
+if [[ -n "${BOOTSTRAP_FIXTURE_GIT_TOPLEVEL:-}" &&
+      "$*" == *"rev-parse --show-toplevel"* ]]; then
+  printf '%s\n' "$BOOTSTRAP_FIXTURE_GIT_TOPLEVEL"
+  exit 0
 fi
 exec /usr/bin/git "$@"
 GIT
@@ -233,10 +241,22 @@ run_bootstrap() {
 }
 
 run_bootstrap_without_git() {
-  local home="$1" archive="$2" output="$3"
+  local home="$1" archive="$2" output="$3" source_marker="${4:-}"
   printf '%s\n' 'fixture-key-redacted' |
     HOME="$home" PATH="$fakebin:$PATH" \
     BOOTSTRAP_FIXTURE_BLOCK_GIT=1 \
+    BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER="$source_marker" \
+    BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+    BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$archive" \
+    "$helper" >"$output" 2>&1
+}
+
+run_bootstrap_with_git_toplevel() {
+  local home="$1" archive="$2" output="$3" git_toplevel="$4" source_marker="$5"
+  printf '%s\n' 'fixture-key-redacted' |
+    HOME="$home" PATH="$fakebin:$PATH" \
+    BOOTSTRAP_FIXTURE_GIT_TOPLEVEL="$git_toplevel" \
+    BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER="$source_marker" \
     BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
     BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$archive" \
     "$helper" >"$output" 2>&1
@@ -264,6 +284,35 @@ find_previous_backup() {
   local parent="$1"
   find "$parent" -mindepth 2 -maxdepth 2 -type d -name previous \
     -path '*/image2-mcp.backup.*/previous' -print
+}
+
+make_git_target() {
+  local git_target="$1"
+  mkdir -p "$git_target/scripts"
+  cp "$root/install.sh" "$git_target/install.sh"
+  cp "$root/install.ps1" "$git_target/install.ps1"
+  cp "$root/go.mod" "$git_target/go.mod"
+  printf 'ownership sentinel\n' >"$git_target/customer.txt"
+  git -C "$git_target" init -q
+  git -C "$git_target" config user.email fixture@example.invalid
+  git -C "$git_target" config user.name fixture
+  git -C "$git_target" remote add origin https://github.com/Schyler0427/image2-mcp.git
+  git -C "$git_target" add .
+  git -C "$git_target" commit -qm ownership-fixture
+}
+
+assert_git_ownership_refusal() {
+  local name="$1" home="$2" archive="$3" output="$4"
+  local git_target="$home/.local/share/image2-mcp" source_marker="$home/.fixture-source-download"
+  local sentinel_before
+  sentinel_before="$(cksum "$git_target/customer.txt")"
+  if run_bootstrap_without_git "$home" "$archive" "$output" "$source_marker"; then
+    fail "$name Git target unexpectedly succeeded"
+  fi
+  assert_contains "$output" 'existing Git target'
+  [[ ! -e "$source_marker" ]] || fail "$name downloaded the source before refusing"
+  [[ "$(cksum "$git_target/customer.txt")" == "$sentinel_before" ]] || fail "$name changed the target"
+  assert_not_contains "$output" 'OPENAI_IMAGE_API_KEY:'
 }
 
 v1_archive="$(make_source_archive v1 version-one)"
@@ -382,6 +431,78 @@ assert_contains "$git_target/collision/ignored.txt" 'new tracked content'
 [[ -f "$git_target/customer-prefix/child.txt" ]] || fail 'new prefix path was not activated'
 assert_contains "$tmp/git-repeat.log" 'Previous local and customer content is not active in the refreshed target.'
 assert_not_contains "$tmp/git-repeat.log" 'fixture-key-redacted'
+
+# The no-Git parser refuses configuration that can redirect Git ownership before
+# downloading source, reading a key, or moving the target.
+bare_home="$tmp/git-bare-home"
+make_git_target "$bare_home/.local/share/image2-mcp"
+cat >>"$bare_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
+[core]
+	bare = true
+CONFIG
+assert_git_ownership_refusal 'core.bare=true' "$bare_home" "$v2_archive" "$tmp/git-bare.log"
+
+duplicate_bare_home="$tmp/git-duplicate-bare-home"
+make_git_target "$duplicate_bare_home/.local/share/image2-mcp"
+cat >>"$duplicate_bare_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
+[core]
+	bare = false
+	bare = false
+CONFIG
+assert_git_ownership_refusal 'duplicate core.bare' "$duplicate_bare_home" "$v2_archive" "$tmp/git-duplicate-bare.log"
+
+worktree_home="$tmp/git-worktree-home"
+make_git_target "$worktree_home/.local/share/image2-mcp"
+cat >>"$worktree_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
+[core]
+	worktree = ../elsewhere
+CONFIG
+assert_git_ownership_refusal 'core.worktree' "$worktree_home" "$v2_archive" "$tmp/git-worktree.log"
+
+include_home="$tmp/git-include-home"
+make_git_target "$include_home/.local/share/image2-mcp"
+cat >>"$include_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
+[include]
+	path = ../untrusted.gitconfig
+CONFIG
+assert_git_ownership_refusal 'include section' "$include_home" "$v2_archive" "$tmp/git-include.log"
+
+include_if_home="$tmp/git-include-if-home"
+make_git_target "$include_if_home/.local/share/image2-mcp"
+cat >>"$include_if_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
+[includeIf "gitdir:../elsewhere/"]
+	path = ../untrusted.gitconfig
+CONFIG
+assert_git_ownership_refusal 'includeIf section' "$include_if_home" "$v2_archive" "$tmp/git-include-if.log"
+
+config_worktree_home="$tmp/git-config-worktree-home"
+make_git_target "$config_worktree_home/.local/share/image2-mcp"
+printf '[core]\n\tworktree = ../elsewhere\n' >"$config_worktree_home/.local/share/image2-mcp/.git/config.worktree"
+assert_git_ownership_refusal 'config.worktree' "$config_worktree_home" "$v2_archive" "$tmp/git-config-worktree.log"
+
+worktree_config_home="$tmp/git-worktree-config-home"
+make_git_target "$worktree_config_home/.local/share/image2-mcp"
+cat >>"$worktree_config_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
+[extensions]
+	worktreeConfig = true
+CONFIG
+assert_git_ownership_refusal 'extensions.worktreeConfig' "$worktree_config_home" "$v2_archive" "$tmp/git-worktree-config.log"
+
+# A usable Git executable must prove that its normalized top-level is exactly
+# the managed target; it must not fall back to config-only proof on mismatch.
+git_toplevel_home="$tmp/git-toplevel-home"
+git_toplevel_target="$git_toplevel_home/.local/share/image2-mcp"
+make_git_target "$git_toplevel_target"
+git_toplevel_sentinel="$(cksum "$git_toplevel_target/customer.txt")"
+git_toplevel_source_marker="$git_toplevel_home/.fixture-source-download"
+if run_bootstrap_with_git_toplevel "$git_toplevel_home" "$v2_archive" "$tmp/git-toplevel.log" \
+    "$tmp/not-the-managed-target" "$git_toplevel_source_marker"; then
+  fail 'mismatched Git top-level unexpectedly succeeded'
+fi
+assert_contains "$tmp/git-toplevel.log" 'existing Git target'
+[[ ! -e "$git_toplevel_source_marker" ]] || fail 'mismatched Git top-level downloaded source before refusing'
+[[ "$(cksum "$git_toplevel_target/customer.txt")" == "$git_toplevel_sentinel" ]] || fail 'mismatched Git top-level changed the target'
+assert_not_contains "$tmp/git-toplevel.log" 'OPENAI_IMAGE_API_KEY:'
 
 # Ambiguous marker and target symlink are conservative, byte-preserving refusals.
 ambiguous_home="$tmp/ambiguous-home"
