@@ -185,6 +185,11 @@ function Invoke-TestBootstrap(
   [switch]$WithoutHomeEnvironment,
   [switch]$FailTransactionCleanup
 ) {
+  Write-Host (
+    "fixture invocation: home=" + (Split-Path -Leaf $HomePath) +
+    "; archive=" + (Split-Path -Leaf $Archive) +
+    "; cleanup-failure=" + $FailTransactionCleanup.IsPresent
+  )
   Set-TestHome $HomePath
   if ($WithoutHomeEnvironment) {
     [Environment]::SetEnvironmentVariable("HOME", $null, "Process")

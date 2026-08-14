@@ -28,4 +28,5 @@ jobs:
           }
       - name: Run PowerShell bootstrap integration
         shell: powershell
+        timeout-minutes: 2
         run: .\tests\test-agent-bootstrap.ps1
