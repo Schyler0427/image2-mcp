@@ -55,7 +55,9 @@ param([switch]$KeyOnly)
 $ErrorActionPreference = "Stop"
 if (-not $KeyOnly) { exit 64 }
 Write-Host -NoNewline "OPENAI_IMAGE_API_KEY: "
+[Console]::Error.WriteLine("fixture child: before stdin read")
 $FixtureKey = [Console]::In.ReadLine()
+[Console]::Error.WriteLine("fixture child: after stdin read")
 Write-Host ""
 if ([string]::IsNullOrWhiteSpace($FixtureKey)) { exit 65 }
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot ".env.local"), "OPENAI_IMAGE_BASE_URL=https://api.schyler.top`nOPENAI_IMAGE_API_KEY=stored`n", (New-Object Text.UTF8Encoding($false)))
@@ -210,15 +212,14 @@ function Invoke-TestBootstrap(
     $Info.Arguments = '/d /s /c ""' + $PowerShell + '" -NoProfile -ExecutionPolicy Bypass -File "' + $Harness + '" < "' + $InputFile + '""'
     $Info.UseShellExecute = $false
     $Info.RedirectStandardOutput = $true
-    $Info.RedirectStandardError = $true
+    $Info.RedirectStandardError = $false
     $Info.CreateNoWindow = $true
     $Process = New-Object Diagnostics.Process
     $Process.StartInfo = $Info
     [void]$Process.Start()
     $Stdout = $Process.StandardOutput.ReadToEnd()
-    $Stderr = $Process.StandardError.ReadToEnd()
     $Process.WaitForExit()
-    return [PSCustomObject]@{ ExitCode = $Process.ExitCode; Output = $Stdout + $Stderr }
+    return [PSCustomObject]@{ ExitCode = $Process.ExitCode; Output = $Stdout }
   } finally {
     Remove-Item -Force -ErrorAction SilentlyContinue $InputFile
   }
