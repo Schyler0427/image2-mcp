@@ -79,7 +79,13 @@ function Assert-AgentBootstrapExistingTarget(
   Assert-AgentBootstrapPlainDirectory (Join-Path $Target "scripts") "existing target scripts directory"
 
   $GitPath = Join-Path $Target ".git"
-  if (Test-Path -LiteralPath $GitPath) {
+  $GitEntry = @(Get-ChildItem -LiteralPath $Target -Force -ErrorAction Stop | Where-Object {
+    $_.Name -ceq ".git"
+  } | Select-Object -First 1)[0]
+  if ($null -ne $GitEntry) {
+    if (Test-AgentBootstrapReparsePoint $GitEntry) {
+      throw "existing Git metadata is not a regular directory"
+    }
     Assert-AgentBootstrapPlainDirectory $GitPath "existing Git metadata"
     $GitConfig = Join-Path $GitPath "config"
     Assert-AgentBootstrapPlainFile $GitConfig "existing Git config"

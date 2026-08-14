@@ -488,6 +488,14 @@ cat >>"$worktree_config_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
 CONFIG
 assert_git_ownership_refusal 'extensions.worktreeConfig' "$worktree_config_home" "$v2_archive" "$tmp/git-worktree-config.log"
 
+include_trailing_home="$tmp/git-include-trailing-home"
+make_git_target "$include_trailing_home/.local/share/image2-mcp"
+cat >>"$include_trailing_home/.local/share/image2-mcp/.git/config" <<'CONFIG'
+[include] # trailing
+	path = ../untrusted.gitconfig
+CONFIG
+assert_git_ownership_refusal 'include section with trailing comment' "$include_trailing_home" "$v2_archive" "$tmp/git-include-trailing.log"
+
 # A usable Git executable must prove that its normalized top-level is exactly
 # the managed target; it must not fall back to config-only proof on mismatch.
 git_toplevel_home="$tmp/git-toplevel-home"
@@ -503,6 +511,26 @@ assert_contains "$tmp/git-toplevel.log" 'existing Git target'
 [[ ! -e "$git_toplevel_source_marker" ]] || fail 'mismatched Git top-level downloaded source before refusing'
 [[ "$(cksum "$git_toplevel_target/customer.txt")" == "$git_toplevel_sentinel" ]] || fail 'mismatched Git top-level changed the target'
 assert_not_contains "$tmp/git-toplevel.log" 'OPENAI_IMAGE_API_KEY:'
+
+# A dangling .git entry must not fall through to an otherwise-valid archive
+# marker. This initially fails because the installer accepts the marker.
+dangling_git_home="$tmp/dangling-git-home"
+dangling_git_target="$dangling_git_home/.local/share/image2-mcp"
+mkdir -p "$dangling_git_target/scripts"
+cp "$root/install.sh" "$dangling_git_target/install.sh"
+cp "$root/install.ps1" "$dangling_git_target/install.ps1"
+cp "$root/go.mod" "$dangling_git_target/go.mod"
+printf 'Schyler0427/image2-mcp' >"$dangling_git_target/.image2-mcp-managed"
+printf 'dangling Git sentinel\n' >"$dangling_git_target/customer.txt"
+ln -s "$dangling_git_home/missing-git-directory" "$dangling_git_target/.git"
+dangling_git_sentinel="$(cksum "$dangling_git_target/customer.txt")"
+dangling_git_source_marker="$dangling_git_home/.fixture-source-download"
+if run_bootstrap_without_git "$dangling_git_home" "$v2_archive" "$tmp/dangling-git.log" "$dangling_git_source_marker"; then
+  fail 'dangling Git metadata unexpectedly fell through to archive-marker acceptance'
+fi
+[[ ! -e "$dangling_git_source_marker" ]] || fail 'dangling Git metadata downloaded source before refusing'
+[[ "$(cksum "$dangling_git_target/customer.txt")" == "$dangling_git_sentinel" ]] || fail 'dangling Git metadata changed the target'
+assert_not_contains "$tmp/dangling-git.log" 'OPENAI_IMAGE_API_KEY:'
 
 # Ambiguous marker and target symlink are conservative, byte-preserving refusals.
 ambiguous_home="$tmp/ambiguous-home"

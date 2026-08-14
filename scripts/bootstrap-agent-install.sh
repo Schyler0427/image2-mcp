@@ -127,7 +127,7 @@ validate_existing_target() {
     [[ -e "$target/$required" ]] || fail 'existing target is missing expected repository files'
   done
 
-  if [[ -e "$target/.git" ]]; then
+  if [[ -e "$target/.git" || -L "$target/.git" ]]; then
     [[ -d "$target/.git" && ! -L "$target/.git" ]] || fail 'existing Git metadata is not a regular directory'
     [[ -f "$target/.git/config" && ! -L "$target/.git/config" ]] || fail 'existing Git target has no readable config'
     [[ ! -e "$target/.git/config.worktree" && ! -L "$target/.git/config.worktree" ]] ||

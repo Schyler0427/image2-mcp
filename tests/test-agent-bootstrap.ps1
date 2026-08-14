@@ -503,6 +503,12 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   [IO.File]::AppendAllText((Join-Path $WorktreeConfigTarget ".git\config"), "`n[extensions]`n`tworktreeConfig = true`n", (New-Object Text.UTF8Encoding($false)))
   Assert-GitOwnershipRefusal "extensions.worktreeConfig" $WorktreeConfigHome $V2 $GitWrapperPath
 
+  $IncludeTrailingHome = Join-Path $TempRoot "git-include-trailing-home"
+  $IncludeTrailingTarget = Join-Path $IncludeTrailingHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $IncludeTrailingTarget
+  [IO.File]::AppendAllText((Join-Path $IncludeTrailingTarget ".git\config"), "`n[include] # trailing`n`tpath = ../untrusted.gitconfig`n", (New-Object Text.UTF8Encoding($false)))
+  Assert-GitOwnershipRefusal "include section with trailing comment" $IncludeTrailingHome $V2 $GitWrapperPath
+
   # A usable Git executable must prove normalized top-level equality instead of
   # falling back to config-only proof when rev-parse points elsewhere.
   $TopLevelHome = Join-Path $TempRoot "git-toplevel-home"
@@ -517,6 +523,28 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   Assert-True (-not (Test-Path $TopLevelMarker)) "mismatched Git top-level downloaded source before refusing"
   Assert-True (((Get-FileHash (Join-Path $TopLevelTarget "customer.txt") -Algorithm SHA256).Hash) -eq $TopLevelHash) "mismatched Git top-level changed the target"
   Assert-True (-not $TopLevelResult.Output.Contains("OPENAI_IMAGE_API_KEY:")) "mismatched Git top-level reached key input"
+
+  # A dangling .git reparse point must not fall through to an otherwise-valid
+  # archive marker. This initially succeeds because Test-Path misses it.
+  $DanglingGitHome = Join-Path $TempRoot "dangling-git-home"
+  $DanglingGitTarget = Join-Path $DanglingGitHome "AppData\Local\image2-mcp"
+  New-Item -ItemType Directory -Force -Path (Join-Path $DanglingGitTarget "scripts") | Out-Null
+  Copy-Item (Join-Path $Root "install.sh") (Join-Path $DanglingGitTarget "install.sh")
+  Copy-Item (Join-Path $Root "install.ps1") (Join-Path $DanglingGitTarget "install.ps1")
+  Copy-Item (Join-Path $Root "go.mod") (Join-Path $DanglingGitTarget "go.mod")
+  [IO.File]::WriteAllText((Join-Path $DanglingGitTarget ".image2-mcp-managed"), "Schyler0427/image2-mcp", (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $DanglingGitTarget "customer.txt"), "dangling Git sentinel`n", (New-Object Text.UTF8Encoding($false)))
+  $DanglingGitDestination = Join-Path $DanglingGitHome "missing-git-directory"
+  New-Item -ItemType Directory -Force -Path $DanglingGitDestination | Out-Null
+  New-Item -ItemType Junction -Path (Join-Path $DanglingGitTarget ".git") -Target $DanglingGitDestination | Out-Null
+  Remove-Item -LiteralPath $DanglingGitDestination -Recurse -Force
+  $DanglingGitMarker = Join-Path $DanglingGitHome ".fixture-source-download"
+  $DanglingGitHash = (Get-FileHash (Join-Path $DanglingGitTarget "customer.txt") -Algorithm SHA256).Hash
+  $DanglingGitResult = Invoke-TestBootstrap $DanglingGitHome $V2 -GitWrapperPath $GitWrapperPath -BlockGit -SourceDownloadMarker $DanglingGitMarker
+  Assert-True ($DanglingGitResult.ExitCode -ne 0) "dangling Git metadata unexpectedly fell through to archive-marker acceptance"
+  Assert-True (-not (Test-Path $DanglingGitMarker)) "dangling Git metadata downloaded source before refusing"
+  Assert-True (((Get-FileHash (Join-Path $DanglingGitTarget "customer.txt") -Algorithm SHA256).Hash) -eq $DanglingGitHash) "dangling Git metadata changed the target"
+  Assert-True (-not $DanglingGitResult.Output.Contains("OPENAI_IMAGE_API_KEY:")) "dangling Git metadata reached key input"
 
   # Ambiguous marker and target reparse point are untouched refusals.
   $AmbiguousHome = Join-Path $TempRoot "ambiguous-home"
