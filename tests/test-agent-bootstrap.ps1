@@ -13,7 +13,11 @@ function Assert-ZipContains([string]$ArchivePath, [string]$EntryName, [string]$M
   $Stream = [IO.File]::OpenRead($ArchivePath)
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Read)
   try {
-    Assert-True ($null -ne $Zip.GetEntry($EntryName)) $Message
+    $NormalizedEntryName = $EntryName.Replace('\', '/')
+    $MatchingEntry = $Zip.Entries | Where-Object {
+      $_.FullName.Replace('\', '/') -ceq $NormalizedEntryName
+    } | Select-Object -First 1
+    Assert-True ($null -ne $MatchingEntry) $Message
   } finally {
     $Zip.Dispose()
     $Stream.Dispose()
