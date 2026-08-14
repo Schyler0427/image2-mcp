@@ -26,6 +26,52 @@ jobs:
             $errors
             exit 1
           }
+      - name: Probe direct child stdin inheritance
+        shell: powershell
+        run: |
+          $probeRoot = Join-Path $env:RUNNER_TEMP ("image2-direct-call-probe-" + [Guid]::NewGuid().ToString("N"))
+          $child = Join-Path $probeRoot "child.ps1"
+          $wrapper = Join-Path $probeRoot "wrapper.ps1"
+          $inputFile = Join-Path $probeRoot "stdin.txt"
+          New-Item -ItemType Directory -Force -Path $probeRoot | Out-Null
+          [IO.File]::WriteAllText($child, @'
+          [Console]::Error.WriteLine("direct-call child before read")
+          $Value = [Console]::In.ReadLine()
+          if ($Value -cne "probe-input") { exit 65 }
+          [Console]::Error.WriteLine("direct-call child after read")
+          '@, (New-Object Text.UTF8Encoding($false)))
+          [IO.File]::WriteAllText($wrapper, @'
+          param([string]$Child)
+          $PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
+          & $PowerShell -NoProfile -ExecutionPolicy Bypass -File $Child
+          exit $LASTEXITCODE
+          '@, (New-Object Text.UTF8Encoding($false)))
+          [IO.File]::WriteAllText($inputFile, "probe-input`r`n", (New-Object Text.UTF8Encoding($false)))
+
+          $powerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
+          $info = New-Object Diagnostics.ProcessStartInfo
+          $info.FileName = $env:ComSpec
+          $info.Arguments = '/d /s /c ""' + $powerShell + '" -NoProfile -ExecutionPolicy Bypass -File "' + $wrapper + '" "' + $child + '" < "' + $inputFile + '""'
+          $info.UseShellExecute = $false
+          $info.RedirectStandardOutput = $true
+          $info.RedirectStandardError = $true
+          $info.CreateNoWindow = $true
+          $process = New-Object Diagnostics.Process
+          $process.StartInfo = $info
+          [void]$process.Start()
+          $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+          $stderrTask = $process.StandardError.ReadToEndAsync()
+          if (-not $process.WaitForExit(15000)) {
+            $process.Kill()
+            throw "direct-call child probe timed out"
+          }
+          $output = $stdoutTask.Result + $stderrTask.Result
+          if ($process.ExitCode -ne 0 -or
+              -not $output.Contains("direct-call child before read") -or
+              -not $output.Contains("direct-call child after read")) {
+            throw "direct-call child probe failed: exit $($process.ExitCode); output: $output"
+          }
+          Write-Host "PASS: direct-call child inherited stdin"
       - name: Run PowerShell bootstrap integration
         shell: powershell
         timeout-minutes: 1
