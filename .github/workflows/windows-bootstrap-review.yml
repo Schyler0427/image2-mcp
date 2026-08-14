@@ -26,6 +26,29 @@ jobs:
             $errors
             exit 1
           }
+      - name: Diagnose hidden ZIP fixture entry
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $probeRoot = Join-Path $env:RUNNER_TEMP ("image2-zip-probe-" + [Guid]::NewGuid().ToString("N"))
+          $sourceParent = Join-Path $probeRoot "source"
+          $tree = Join-Path $sourceParent "image2-mcp-0.2.1"
+          $marker = Join-Path $tree ".fixture-install-fail"
+          $archive = Join-Path $probeRoot "fixture.zip"
+          New-Item -ItemType Directory -Force -Path $tree | Out-Null
+          [IO.File]::WriteAllText($marker, "", (New-Object Text.UTF8Encoding($false)))
+          Write-Host ("marker attributes: " + [IO.File]::GetAttributes($marker))
+          [IO.Compression.ZipFile]::CreateFromDirectory($sourceParent, $archive)
+          $stream = [IO.File]::OpenRead($archive)
+          $zip = New-Object IO.Compression.ZipArchive($stream, [IO.Compression.ZipArchiveMode]::Read)
+          try {
+            $zip.Entries | ForEach-Object { Write-Host ("ZIP entry: [" + $_.FullName + "]") }
+            Write-Host ("forward slash match: " + ($null -ne $zip.GetEntry("image2-mcp-0.2.1/.fixture-install-fail")))
+            Write-Host ("backslash match: " + ($null -ne $zip.GetEntry("image2-mcp-0.2.1\.fixture-install-fail")))
+          } finally {
+            $zip.Dispose()
+            $stream.Dispose()
+          }
       - name: Run PowerShell bootstrap integration
         shell: powershell
         run: .\tests\test-agent-bootstrap.ps1
