@@ -275,7 +275,10 @@ function Get-TomlHeaderKeySegments([string]$Line) {
     return $null
   }
 
-  $Text = $Match.Groups['Body'].Value
+  return (Get-TomlKeySegments $Match.Groups['Body'].Value)
+}
+
+function Get-TomlKeySegments([string]$Text) {
   $Segments = New-Object System.Collections.Generic.List[string]
   $Index = 0
   while ($true) {
@@ -374,6 +377,38 @@ function Get-TomlHeaderKeySegments([string]$Line) {
   }
 }
 
+function Get-TomlAssignmentKeySegments([string]$Line) {
+  $Quote = [char]0
+  $Escaped = $false
+  for ($Index = 0; $Index -lt $Line.Length; $Index++) {
+    $Char = $Line[$Index]
+    if ($Quote -eq '"') {
+      if ($Escaped) {
+        $Escaped = $false
+      } elseif ($Char -eq '\') {
+        $Escaped = $true
+      } elseif ($Char -eq $Quote) {
+        $Quote = [char]0
+      }
+      continue
+    }
+    if ($Quote -eq "'") {
+      if ($Char -eq $Quote) {
+        $Quote = [char]0
+      }
+      continue
+    }
+    if ($Char -eq '"' -or $Char -eq "'") {
+      $Quote = $Char
+      continue
+    }
+    if ($Char -eq '=') {
+      return (Get-TomlKeySegments $Line.Substring(0, $Index))
+    }
+  }
+  return $null
+}
+
 function Assert-SupportedImage2ConfigHeaders([string[]]$Lines, [string]$ConfigFile) {
   foreach ($Line in $Lines) {
     $IsTable = (Test-TomlTableHeader $Line) -or (Test-TomlArrayTableHeader $Line)
@@ -382,6 +417,35 @@ function Assert-SupportedImage2ConfigHeaders([string[]]$Lines, [string]$ConfigFi
       throw "unsupported Image2 TOML table header in $ConfigFile"
     }
   }
+}
+
+function Assert-SupportedImage2ConfigAssignments([string[]]$Lines) {
+  $CurrentTable = @()
+  foreach ($Line in $Lines) {
+    if ((Test-TomlTableHeader $Line) -or (Test-TomlArrayTableHeader $Line)) {
+      $CurrentTable = @(Get-TomlHeaderKeySegments $Line)
+      continue
+    }
+    $Assignment = @(Get-TomlAssignmentKeySegments $Line)
+    if ($Assignment.Count -eq 0) {
+      continue
+    }
+    if ($CurrentTable.Count -eq 0 -and $Assignment[0] -ceq "mcp_servers" -and ($Assignment.Count -eq 1 -or $Assignment[1] -ceq "image2")) {
+      throw "unsupported conflicting Image2 TOML assignment"
+    }
+    if ($CurrentTable.Count -eq 1 -and $CurrentTable[0] -ceq "mcp_servers" -and $Assignment[0] -ceq "image2") {
+      throw "unsupported conflicting Image2 TOML assignment"
+    }
+  }
+}
+
+function Assert-SupportedImage2Config([string]$ConfigFile) {
+  if (-not (Test-Path $ConfigFile)) {
+    return
+  }
+  $Lines = [IO.File]::ReadAllLines($ConfigFile)
+  Assert-SupportedImage2ConfigHeaders $Lines $ConfigFile
+  Assert-SupportedImage2ConfigAssignments $Lines
 }
 
 function Remove-Image2ConfigNamespace([string[]]$Lines) {
@@ -407,6 +471,7 @@ function ConvertTo-TomlBasicString([string]$Value) {
 function Set-Image2CodexConfig([string]$ConfigFile) {
   $Lines = if (Test-Path $ConfigFile) { [IO.File]::ReadAllLines($ConfigFile) } else { @() }
   Assert-SupportedImage2ConfigHeaders $Lines $ConfigFile
+  Assert-SupportedImage2ConfigAssignments $Lines
   $Output = New-Object System.Collections.Generic.List[string]
   foreach ($Line in (Remove-Image2ConfigNamespace $Lines)) {
     $Output.Add($Line)
@@ -562,6 +627,9 @@ function Invoke-Installer {
 
   Push-Location $RepoDir
   try {
+    if ($ConfigureCodex) {
+      Assert-SupportedImage2Config (Join-Path $HOME ".codex\config.toml")
+    }
     if ($KeyOnly) {
       Read-KeyOnce
       Write-KeyOnlyEnvironment

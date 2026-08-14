@@ -16,6 +16,13 @@ function Assert-InstallerParses {
   Assert-True ($Errors.Count -eq 0) "install.ps1 has parser errors: $($Errors | Out-String)"
 }
 
+function Get-FileFingerprint([string]$Path) {
+  if (Test-Path $Path) {
+    return (Get-FileHash $Path -Algorithm SHA256).Hash
+  }
+  return "absent"
+}
+
 function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "") {
   $PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
   $InputFile = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdin-" + [Guid]::NewGuid().ToString("N"))
@@ -304,6 +311,64 @@ command = "C:\quoted\old-runner.ps1"
   Assert-True ($QuotedResult.ExitCode -ne 0) "quoted Image2 table unexpectedly succeeded"
   Assert-True ($QuotedResult.Output.Contains("unsupported Image2 TOML table header")) "quoted Image2 table error is unclear"
   Assert-True (((Get-FileHash $QuotedConfig -Algorithm SHA256).Hash) -eq $QuotedHash) "quoted Image2 config changed"
+
+  function Assert-ConflictingAssignmentRefused([string]$Name, [string]$Config) {
+    $ConflictHome = Join-Path $TempRoot ("conflicting-assignment-" + $Name)
+    $ConflictConfig = Join-Path $ConflictHome ".codex\config.toml"
+    New-Item -ItemType Directory -Force -Path (Join-Path $ConflictHome ".codex") | Out-Null
+    [IO.File]::WriteAllText($ConflictConfig, $Config, (New-Object Text.UTF8Encoding($false)))
+    $ConfigHash = Get-FileFingerprint $ConflictConfig
+    $EnvFingerprint = Get-FileFingerprint $EnvFile
+    $BinaryFingerprint = Get-FileFingerprint $BinaryFile
+    [Environment]::SetEnvironmentVariable("HOME", $ConflictHome, "Process")
+    [Environment]::SetEnvironmentVariable("USERPROFILE", $ConflictHome, "Process")
+    $Result = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+    Assert-True ($Result.ExitCode -ne 0) "conflicting Image2 TOML assignment $Name unexpectedly succeeded"
+    Assert-True ($Result.Output.Contains("unsupported conflicting Image2 TOML assignment")) "conflicting Image2 TOML assignment $Name error is unclear"
+    Assert-True (-not $Result.Output.Contains("old")) "conflicting Image2 TOML assignment $Name exposed config content"
+    Assert-True (-not $Result.Output.Contains("OPENAI_IMAGE_API_KEY:")) "conflicting Image2 TOML assignment $Name prompted for an API Key"
+    Assert-True ((Get-FileFingerprint $ConflictConfig) -eq $ConfigHash) "conflicting Image2 TOML assignment $Name changed config"
+    Assert-True ((Get-FileFingerprint $EnvFile) -eq $EnvFingerprint) "conflicting Image2 TOML assignment $Name changed .env.local"
+    Assert-True ((Get-FileFingerprint $BinaryFile) -eq $BinaryFingerprint) "conflicting Image2 TOML assignment $Name changed binary"
+  }
+
+  Assert-ConflictingAssignmentRefused "dotted" @'
+mcp_servers.image2.command = "old"
+'@
+
+  Assert-ConflictingAssignmentRefused "quoted-dotted" @'
+"mcp_servers" . "image2" . command = "old"
+'@
+
+  Assert-ConflictingAssignmentRefused "inline" @'
+mcp_servers = { image2 = { command = "old" } }
+'@
+
+  Assert-ConflictingAssignmentRefused "table-dotted" @'
+[mcp_servers]
+image2.command = "old"
+'@
+
+  Assert-ConflictingAssignmentRefused "quoted-table-inline" @'
+[mcp_servers]
+'image2' = { command = "old" }
+'@
+
+  $SiblingAssignmentHome = Join-Path $TempRoot "sibling-assignment-home"
+  $SiblingAssignmentConfig = Join-Path $SiblingAssignmentHome ".codex\config.toml"
+  New-Item -ItemType Directory -Force -Path (Join-Path $SiblingAssignmentHome ".codex") | Out-Null
+  [IO.File]::WriteAllText($SiblingAssignmentConfig, @'
+mcp_servers.keep.command = "ok"
+"mcp_servers" . "keep-quoted" . command = "quoted ok"
+'@, (New-Object Text.UTF8Encoding($false)))
+  [Environment]::SetEnvironmentVariable("HOME", $SiblingAssignmentHome, "Process")
+  [Environment]::SetEnvironmentVariable("USERPROFILE", $SiblingAssignmentHome, "Process")
+  $SiblingAssignmentResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  Assert-True ($SiblingAssignmentResult.ExitCode -eq 0) "root dotted sibling assignments were not accepted"
+  Assert-True ($SiblingAssignmentResult.Output.Contains("Verification: OK")) "root dotted sibling verification marker missing"
+  $SiblingAssignmentLines = [IO.File]::ReadAllLines($SiblingAssignmentConfig)
+  Assert-True ($SiblingAssignmentLines -ccontains 'mcp_servers.keep.command = "ok"') "root dotted sibling assignment was not preserved"
+  Assert-True ($SiblingAssignmentLines -ccontains '"mcp_servers" . "keep-quoted" . command = "quoted ok"') "quoted root dotted sibling assignment was not preserved"
 
   Write-Host "PASS: PowerShell key-only installer"
 } finally {

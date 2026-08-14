@@ -8,6 +8,14 @@ trap 'rm -rf "$tmp"' EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 assert_contains() { grep -Fq "$2" "$1" || fail "$1 does not contain $2"; }
 assert_not_contains() { ! grep -Fq "$2" "$1" || fail "$1 contains secret text"; }
+assert_line() { grep -Fxq "$2" "$1" || fail "$1 does not preserve $2"; }
+file_fingerprint() {
+  if [[ -e "$1" ]]; then
+    cksum "$1"
+  else
+    printf 'absent\n'
+  fi
+}
 
 if grep -Fq 'IMAGE2_MCP_TEST_RELEASE_ZIP' "$root/install.ps1"; then
   fail 'production PowerShell installer contains a local Release override'
@@ -228,6 +236,62 @@ if printf '%s\n' "$secret" | HOME="$escaped_quoted_home" PATH="$fakebin:$PATH" I
 fi
 assert_contains "$tmp/escaped-quoted.log" 'unsupported Image2 TOML table header'
 [[ "$(cksum "$escaped_quoted_home/.codex/config.toml")" == "$escaped_quoted_before" ]] || fail 'escaped quoted Image2 config changed'
+
+assert_conflicting_assignment_refused() {
+  local name="$1" conflict_home config_file config_before env_before binary_before output
+  conflict_home="$tmp/conflicting-assignment-$name"
+  config_file="$conflict_home/.codex/config.toml"
+  output="$tmp/conflicting-assignment-$name.log"
+  mkdir -p "$conflict_home/.codex"
+  cat >"$config_file"
+  config_before="$(cksum "$config_file")"
+  env_before="$(file_fingerprint "$repo/.env.local")"
+  binary_before="$(file_fingerprint "$repo/dist/image2-mcp")"
+  if printf '%s\n' "$secret" | HOME="$conflict_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+    "$repo/install.sh" --key-only >"$output" 2>&1; then
+    fail "conflicting Image2 TOML assignment $name unexpectedly succeeded"
+  fi
+  assert_contains "$output" 'unsupported conflicting Image2 TOML assignment'
+  assert_not_contains "$output" 'old'
+  assert_not_contains "$output" 'OPENAI_IMAGE_API_KEY:'
+  [[ "$(cksum "$config_file")" == "$config_before" ]] || fail "conflicting Image2 TOML assignment $name changed config"
+  [[ "$(file_fingerprint "$repo/.env.local")" == "$env_before" ]] || fail "conflicting Image2 TOML assignment $name changed .env.local"
+  [[ "$(file_fingerprint "$repo/dist/image2-mcp")" == "$binary_before" ]] || fail "conflicting Image2 TOML assignment $name changed binary"
+}
+
+assert_conflicting_assignment_refused dotted <<'TOML'
+mcp_servers.image2.command = "old"
+TOML
+
+assert_conflicting_assignment_refused quoted-dotted <<'TOML'
+"mcp_servers" . "image2" . command = "old"
+TOML
+
+assert_conflicting_assignment_refused inline <<'TOML'
+mcp_servers = { image2 = { command = "old" } }
+TOML
+
+assert_conflicting_assignment_refused table-dotted <<'TOML'
+[mcp_servers]
+image2.command = "old"
+TOML
+
+assert_conflicting_assignment_refused quoted-table-inline <<'TOML'
+[mcp_servers]
+'image2' = { command = "old" }
+TOML
+
+sibling_assignment_home="$tmp/sibling-assignment-home"
+mkdir -p "$sibling_assignment_home/.codex"
+cat >"$sibling_assignment_home/.codex/config.toml" <<'TOML'
+mcp_servers.keep.command = "ok"
+"mcp_servers" . "keep-quoted" . command = "quoted ok"
+TOML
+printf '%s\n' "$secret" | HOME="$sibling_assignment_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/sibling-assignment.log" 2>&1
+assert_contains "$tmp/sibling-assignment.log" 'Verification: OK'
+assert_line "$sibling_assignment_home/.codex/config.toml" 'mcp_servers.keep.command = "ok"'
+assert_line "$sibling_assignment_home/.codex/config.toml" '"mcp_servers" . "keep-quoted" . command = "quoted ok"'
 
 nul_env_before="$(cksum "$repo/.env.local")"
 nul_binary_before="$(cksum "$repo/dist/image2-mcp")"

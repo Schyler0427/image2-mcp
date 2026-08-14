@@ -343,8 +343,99 @@ validate_image2_config_headers() {
       parse_key_segment(key_text, next_pos + 1)
       return parsed_ok && first_key == "mcp_servers" && parsed_value == "image2"
     }
-    (table_header($0) || array_table_header($0)) && image2_namespace_header($0) && !image2_header($0) { exit 1 }
+    function set_current_table(line, key_text, next_pos) {
+      current_table_count = 0
+      current_table_first = ""
+      key_text = line
+      sub(/^[[:space:]]*\[\[?/, "", key_text)
+      if (line ~ /^[[:space:]]*\[\[/) sub(/\]\][[:space:]]*(#.*)?$/, "", key_text)
+      else sub(/\][[:space:]]*(#.*)?$/, "", key_text)
+      parse_key_segment(key_text, 1)
+      if (!parsed_ok) return
+      current_table_first = parsed_value
+      current_table_count = 1
+      next_pos = skip_spaces(key_text, parsed_pos)
+      if (substr(key_text, next_pos, 1) != ".") return
+      parse_key_segment(key_text, next_pos + 1)
+      if (parsed_ok) current_table_count = 2
+    }
+    function assignment_key_segments(line, char_index, char, quote, escaped, lhs, next_pos) {
+      parsed_ok = 0
+      assignment_key_count = 0
+      assignment_first_key = ""
+      assignment_second_key = ""
+      quote = ""
+      escaped = 0
+      for (char_index = 1; char_index <= length(line); char_index++) {
+        char = substr(line, char_index, 1)
+        if (quote == "\"") {
+          if (escaped) {
+            escaped = 0
+          } else if (char == "\\") {
+            escaped = 1
+          } else if (char == quote) {
+            quote = ""
+          }
+          continue
+        }
+        if (quote == sprintf("%c", 39)) {
+          if (char == quote) quote = ""
+          continue
+        }
+        if (char == "\"" || char == sprintf("%c", 39)) {
+          quote = char
+          continue
+        }
+        if (char == "=") {
+          lhs = substr(line, 1, char_index - 1)
+          parse_key_segment(lhs, 1)
+          if (!parsed_ok) return
+          assignment_first_key = parsed_value
+          assignment_key_count = 1
+          next_pos = skip_spaces(lhs, parsed_pos)
+          if (substr(lhs, next_pos, 1) != ".") return
+          parse_key_segment(lhs, next_pos + 1)
+          if (parsed_ok) {
+            assignment_second_key = parsed_value
+            assignment_key_count = 2
+          }
+          return
+        }
+      }
+    }
+    (table_header($0) || array_table_header($0)) {
+      set_current_table($0)
+      if (image2_namespace_header($0) && !image2_header($0)) exit 1
+      next
+    }
+    {
+      assignment_key_segments($0)
+      if (assignment_key_count == 0) next
+      if (current_table_count == 0 && assignment_first_key == "mcp_servers" && (assignment_key_count == 1 || assignment_second_key == "image2")) exit 2
+      if (current_table_count == 1 && current_table_first == "mcp_servers" && assignment_first_key == "image2") exit 2
+    }
   ' "$input"
+}
+
+validate_codex_config_file() {
+  local config_file="$1" status
+  [[ -f "$config_file" ]] || return 0
+  if validate_image2_config_headers "$config_file"; then
+    return 0
+  else
+    status=$?
+  fi
+  case "$status" in
+    0) return 0 ;;
+    1) echo "error: unsupported Image2 TOML table header in ${config_file}" >&2 ;;
+    2) echo 'error: unsupported conflicting Image2 TOML assignment' >&2 ;;
+    *) echo "error: unable to validate Codex config: ${config_file}" >&2 ;;
+  esac
+  return 1
+}
+
+validate_codex_config_before_install() {
+  validate_codex_config_file "${HOME}/.codex/config.toml"
 }
 
 toml_basic_string() {
@@ -356,8 +447,7 @@ toml_basic_string() {
 
 replace_image2_config() {
   local config_file="$1" tmp runner root_count
-  validate_image2_config_headers "$config_file" || {
-    echo "error: unsupported Image2 TOML table header in ${config_file}" >&2
+  validate_codex_config_file "$config_file" || {
     return 1
   }
   tmp="$(mktemp "${config_file}.tmp.XXXXXX")"
@@ -561,6 +651,9 @@ load_legacy_environment() {
 run_install() {
   local go_available
   cd "$repo_dir"
+  if [[ "$configure_codex" -eq 1 ]]; then
+    validate_codex_config_before_install
+  fi
   mkdir -p dist
 
   if [[ "$key_only" -eq 1 ]]; then
