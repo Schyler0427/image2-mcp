@@ -204,7 +204,7 @@ go build -o .\dist\image2-mcp.exe .\cmd\image2-mcp
 
 ### 发布 GitHub Release
 
-仓库包含 GitHub Actions Release workflow。推送 `v*` tag 后会自动构建：
+仓库包含 GitHub Actions Release workflow。推送 `v0.2.1` tag 后会自动构建：
 
 ```text
 darwin/arm64

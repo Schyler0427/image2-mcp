@@ -60,6 +60,14 @@ grep -Fq 'git tag v0.2.1' "$root/README.md" || {
   echo 'FAIL: README release instructions are not pinned to v0.2.1' >&2
   exit 1
 }
+grep -Fq '仓库包含 GitHub Actions Release workflow。推送 `v0.2.1` tag 后会自动构建：' "$root/README.md" || {
+  echo 'FAIL: README release trigger is not pinned to v0.2.1' >&2
+  exit 1
+}
+if grep -Fq '`v*` tag' "$root/README.md"; then
+  echo 'FAIL: README release trigger still accepts a wildcard tag' >&2
+  exit 1
+fi
 asset_count="$(grep -Ec 'goos: (darwin|linux|windows)|goarch: (arm64|amd64)' "$workflow")"
 [[ "$asset_count" -eq 12 ]] || {
   echo 'FAIL: release workflow six-asset matrix changed' >&2
