@@ -75,20 +75,31 @@ function Assert-AgentBootstrapExistingTarget(
 
   $GitPath = Join-Path $Target ".git"
   if (Test-Path -LiteralPath $GitPath) {
-    $Git = @(Get-Command git -CommandType Application -ErrorAction Stop)[0]
-    $Top = [string](& $Git.Source -C $Target rev-parse --show-toplevel 2>$null)
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Top)) {
-      throw "existing Git target cannot be validated"
+    Assert-AgentBootstrapPlainDirectory $GitPath "existing Git metadata"
+    $GitConfig = Join-Path $GitPath "config"
+    Assert-AgentBootstrapPlainFile $GitConfig "existing Git config"
+    $InOrigin = $false
+    $RemoteCount = 0
+    $Remote = $null
+    foreach ($Line in [IO.File]::ReadAllLines($GitConfig)) {
+      $Trimmed = $Line.TrimStart()
+      if ($Trimmed -ceq '[remote "origin"]') {
+        $InOrigin = $true
+        continue
+      }
+      if ($Trimmed.StartsWith("[")) {
+        $InOrigin = $false
+        continue
+      }
+      if ($InOrigin -and $Trimmed -match '^url\s*=\s*(.*)$') {
+        $Remote = $Matches[1]
+        $RemoteCount++
+      }
     }
-    if (-not [string]::Equals(
-      (Get-AgentBootstrapFullPath $Top),
-      (Get-AgentBootstrapFullPath $Target),
-      [StringComparison]::OrdinalIgnoreCase
-    )) {
-      throw "managed target is not the Git worktree root"
+    if ($RemoteCount -ne 1) {
+      throw "existing Git target has no unique origin remote"
     }
-    $Remote = [string](& $Git.Source -C $Target remote get-url origin 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $Remote -cne $RepositoryUrl) {
+    if ($Remote -cne $RepositoryUrl) {
       throw "existing Git target origin does not match the fixed repository"
     }
     return
@@ -297,8 +308,8 @@ function Invoke-AgentBootstrapInstaller(
   $Info.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $InstallerPath + '" -KeyOnly'
   $Info.WorkingDirectory = Split-Path -Parent $InstallerPath
   $Info.UseShellExecute = $false
-  $Info.RedirectStandardOutput = $true
-  $Info.RedirectStandardError = $true
+  $Info.RedirectStandardOutput = $false
+  $Info.RedirectStandardError = $false
   $Info.RedirectStandardInput = $false
   $Info.CreateNoWindow = $true
   $Info.EnvironmentVariables["IMAGE2_MCP_REPO"] = $RepositorySlug
@@ -309,19 +320,33 @@ function Invoke-AgentBootstrapInstaller(
     if (-not $Process.Start()) {
       throw "key-only installer could not be started"
     }
-    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
-    $StderrTask = $Process.StandardError.ReadToEndAsync()
     $Process.WaitForExit()
-    $Stdout = $StdoutTask.Result
-    $null = $StderrTask.Result
     if ($Process.ExitCode -ne 0) {
       throw "key-only installer failed; the previous target will be restored"
     }
-    if (-not (($Stdout -split "`r?`n") -ccontains "Verification: OK")) {
-      throw "key-only installer did not report Verification: OK"
-    }
   } finally {
     $Process.Dispose()
+  }
+}
+
+function Write-AgentBootstrapRetainedEvidence(
+  [string]$TransactionPath,
+  [string]$BackupRoot
+) {
+  if (Test-Path -LiteralPath $TransactionPath) {
+    Write-Host "Retained transaction evidence: $TransactionPath"
+    $FailedTarget = Join-Path $TransactionPath "failed-target"
+    if (Test-Path -LiteralPath $FailedTarget) {
+      Write-Host "Retained failed target evidence: $FailedTarget"
+    }
+  }
+  if ($BackupRoot -and (Test-Path -LiteralPath $BackupRoot)) {
+    $Previous = Join-Path $BackupRoot "previous"
+    if (Test-Path -LiteralPath $Previous) {
+      Write-Host "Previous installation retained at: $Previous"
+    } else {
+      Write-Host "Retained backup evidence: $BackupRoot"
+    }
   }
 }
 
@@ -492,13 +517,20 @@ function Invoke-AgentBootstrap {
         -NewMoveIntent $NewMoveIntent -ConfigState $ConfigState
     } catch {
       $RetainTransaction = $true
-      Write-Host "Retained transaction evidence: $TransactionPath"
+      Write-AgentBootstrapRetainedEvidence $TransactionPath $BackupRoot
       throw "bootstrap failed: $OriginalMessage; rollback failed: $($_.Exception.Message)"
     }
     throw "bootstrap failed: $OriginalMessage"
   } finally {
     if (-not $RetainTransaction -and (Test-Path -LiteralPath $TransactionPath)) {
-      Remove-Item -LiteralPath $TransactionPath -Recurse -Force -ErrorAction SilentlyContinue
+      try {
+        Remove-Item -LiteralPath $TransactionPath -Recurse -Force -ErrorAction Stop
+      } catch {
+        $RetainTransaction = $true
+        Write-Host "Transaction cleanup failed; evidence retained."
+        Write-AgentBootstrapRetainedEvidence $TransactionPath $BackupRoot
+        throw "bootstrap cleanup failed: $($_.Exception.Message)"
+      }
     }
   }
 }

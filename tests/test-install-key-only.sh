@@ -92,6 +92,9 @@ printf '%s\nignored-second-line\n' "$secret" |
   "$repo/install.sh" --key-only >"$output" 2>&1
 
 assert_contains "$output" 'Verification: OK'
+source "$root/scripts/setup.sh"
+expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.2.1/$expected_asset"
 assert_not_contains "$output" "$secret"
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top'
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_API_KEY='
@@ -253,7 +256,6 @@ if printf '%s\n' "$secret" | HOME="$home" "$repo/install.sh" --key-only --base-u
   fail 'conflicting key-only flags unexpectedly succeeded'
 fi
 
-source "$root/scripts/setup.sh"
 [[ "$(platform_name Darwin)" == darwin ]] || fail 'Darwin mapping failed'
 [[ "$(platform_name Linux)" == linux ]] || fail 'Linux mapping failed'
 [[ "$(arch_name arm64)" == arm64 ]] || fail 'arm64 mapping failed'

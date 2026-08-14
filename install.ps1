@@ -226,7 +226,11 @@ function Install-Prebuilt {
   $Repo = Get-GitHubRepoSlug
   $Arch = Get-ArchName
   $Asset = "image2-mcp_windows_${Arch}.zip"
-  $Url = "https://github.com/${Repo}/releases/latest/download/${Asset}"
+  $Url = if ($KeyOnly) {
+    "https://github.com/${Repo}/releases/download/v0.2.1/${Asset}"
+  } else {
+    "https://github.com/${Repo}/releases/latest/download/${Asset}"
+  }
   $Dist = Join-Path $RepoDir "dist"
   New-Item -ItemType Directory -Force -Path $Dist | Out-Null
   $TempDir = Join-Path $Dist (".image2-mcp." + [Guid]::NewGuid().ToString("N"))

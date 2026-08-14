@@ -52,6 +52,14 @@ for test_path in 'tests/test-agent-bootstrap.sh' 'tests/test-agent-bootstrap.ps1
     exit 1
   }
 done
+grep -Fq -- '- "v0.2.1"' "$workflow" || {
+  echo 'FAIL: release workflow is not pinned to v0.2.1' >&2
+  exit 1
+}
+grep -Fq 'git tag v0.2.1' "$root/README.md" || {
+  echo 'FAIL: README release instructions are not pinned to v0.2.1' >&2
+  exit 1
+}
 asset_count="$(grep -Ec 'goos: (darwin|linux|windows)|goarch: (arm64|amd64)' "$workflow")"
 [[ "$asset_count" -eq 12 ]] || {
   echo 'FAIL: release workflow six-asset matrix changed' >&2

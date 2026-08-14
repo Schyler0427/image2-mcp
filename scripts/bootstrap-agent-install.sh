@@ -97,11 +97,30 @@ PY
     ' "$json_file" >/dev/null
     return
   fi
-  fail 'python3 or jq is required to validate the public Release'
+  local compact asset json_text
+  compact="$txn/release.json.compact"
+  json_text="$(tr -d '[:space:]' <"$json_file")" || fail 'public Release JSON could not be read'
+  printf '%s' "$json_text" >"$compact"
+  [[ -n "$json_text" ]] || fail 'public Release JSON is empty'
+  [[ "${json_text#\{}" != "$json_text" && "${json_text%\}}" != "$json_text" ]] ||
+    fail 'public Release JSON is not an object'
+  grep -Fq '"tag_name":"v0.2.1"' "$compact" || fail 'public Release tag is not v0.2.1'
+  grep -Fq '"draft":false' "$compact" || fail 'public v0.2.1 Release is a draft'
+  grep -Fq '"prerelease":false' "$compact" || fail 'public v0.2.1 Release is a prerelease'
+  for asset in \
+    'image2-mcp_darwin_arm64.tar.gz' \
+    'image2-mcp_darwin_amd64.tar.gz' \
+    'image2-mcp_linux_arm64.tar.gz' \
+    'image2-mcp_linux_amd64.tar.gz' \
+    'image2-mcp_windows_arm64.zip' \
+    'image2-mcp_windows_amd64.zip'; do
+    grep -Fq "\"name\":\"$asset\"" "$compact" ||
+      fail "public v0.2.1 Release is missing required asset: $asset"
+  done
 }
 
 validate_existing_target() {
-  local expected_marker top remote
+  local expected_marker remote
   [[ ! -L "$target" ]] || fail 'managed target must not be a symlink'
   [[ -d "$target" ]] || fail 'managed target is not a directory'
   for required in install.sh install.ps1 go.mod scripts; do
@@ -109,10 +128,25 @@ validate_existing_target() {
   done
 
   if [[ -e "$target/.git" ]]; then
-    command -v git >/dev/null 2>&1 || fail 'Git is required to validate an existing Git target'
-    top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" || fail 'existing Git target cannot be validated'
-    [[ "$(cd "$target" && pwd -P)" == "$(cd "$top" && pwd -P)" ]] || fail 'managed target is not the Git worktree root'
-    remote="$(git -C "$target" remote get-url origin 2>/dev/null)" || fail 'existing Git target has no origin remote'
+    [[ -d "$target/.git" && ! -L "$target/.git" ]] || fail 'existing Git metadata is not a regular directory'
+    [[ -f "$target/.git/config" && ! -L "$target/.git/config" ]] || fail 'existing Git target has no readable config'
+    local in_origin=0 remote_count=0 line trimmed value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      trimmed="${line#"${line%%[![:space:]]*}"}"
+      case "$trimmed" in
+        '[remote "origin"]') in_origin=1 ;;
+        \[*\]) in_origin=0 ;;
+        url=*|url[[:space:]]*=*)
+          if [[ "$in_origin" -eq 1 ]]; then
+            value="${trimmed#*=}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            remote="$value"
+            remote_count=$((remote_count + 1))
+          fi
+          ;;
+      esac
+    done <"$target/.git/config"
+    [[ "$remote_count" -eq 1 ]] || fail 'existing Git target has no unique origin remote'
     [[ "$remote" == "$readonly_repo_url" ]] || fail 'existing Git target origin does not match the fixed repository'
     return
   fi
@@ -264,7 +298,13 @@ finish_transaction() {
     return "$exit_status"
   fi
   if [[ -n "$txn" && -d "$txn" ]] && ! rm -rf "$txn"; then
-    printf 'error: recovery cleanup failed; transaction evidence may remain at: %s\n' "$txn" >&2
+    printf 'error: recovery cleanup failed\n' >&2
+    printf 'Transaction evidence retained at: %s\n' "$txn" >&2
+    if [[ -n "$backup_root" && ( -e "$backup_root/previous" || -L "$backup_root/previous" ) ]]; then
+      printf 'Previous installation retained at: %s\n' "$backup_root/previous" >&2
+    elif [[ -n "$backup_root" && ( -e "$backup_root" || -L "$backup_root" ) ]]; then
+      printf 'Backup evidence retained at: %s\n' "$backup_root" >&2
+    fi
     if [[ "$exit_status" -eq 0 ]]; then
       return 1
     fi
@@ -273,11 +313,9 @@ finish_transaction() {
 }
 
 run_key_only_installer() {
-  local installer_log="$txn/installer.log"
-  if ! (cd "$target" && IMAGE2_MCP_REPO="$readonly_repo_slug" ./install.sh --key-only) >"$installer_log" 2>&1; then
+  if ! (cd "$target" && IMAGE2_MCP_REPO="$readonly_repo_slug" ./install.sh --key-only); then
     fail 'key-only installer failed; the previous target will be restored'
   fi
-  grep -Fxq 'Verification: OK' "$installer_log" || fail 'key-only installer did not report Verification: OK'
 }
 
 main() {

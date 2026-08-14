@@ -218,8 +218,8 @@ windows/amd64
 发布方式：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 Release 产物命名：

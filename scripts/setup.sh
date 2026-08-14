@@ -102,7 +102,11 @@ download_prebuilt() {
     return 1
   }
   asset="image2-mcp_${os}_${arch}.tar.gz"
-  url="https://github.com/${repo}/releases/latest/download/${asset}"
+  if [[ "$key_only" -eq 1 ]]; then
+    url="https://github.com/${repo}/releases/download/v0.2.1/${asset}"
+  else
+    url="https://github.com/${repo}/releases/latest/download/${asset}"
+  fi
   mkdir -p "${repo_dir}/dist"
   tmp="$(mktemp -d "${repo_dir}/dist/.image2-mcp.XXXXXX")"
   extract="${tmp}/extract"

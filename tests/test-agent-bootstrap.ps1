@@ -8,6 +8,18 @@ function Assert-Contains([string]$Path, [string]$Expected, [string]$Message) {
   Assert-True ([IO.File]::ReadAllText($Path).Contains($Expected)) $Message
 }
 
+function Assert-ZipContains([string]$ArchivePath, [string]$EntryName, [string]$Message) {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $Stream = [IO.File]::OpenRead($ArchivePath)
+  $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Read)
+  try {
+    Assert-True ($null -ne $Zip.GetEntry($EntryName)) $Message
+  } finally {
+    $Zip.Dispose()
+    $Stream.Dispose()
+  }
+}
+
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Helper = Join-Path $Root "scripts\bootstrap-agent-install.ps1"
 Assert-True (Test-Path $Helper) "PowerShell Agent bootstrap helper is missing"
@@ -19,7 +31,8 @@ $SecretText = "fixture-key-redacted"
 $SavedEnvironment = @{}
 foreach ($Name in @(
   "HOME", "USERPROFILE", "LOCALAPPDATA", "BOOTSTRAP_FIXTURE_HELPER",
-  "BOOTSTRAP_FIXTURE_RELEASE_JSON", "BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE"
+  "BOOTSTRAP_FIXTURE_RELEASE_JSON", "BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE",
+  "BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP"
 )) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
@@ -37,7 +50,9 @@ function New-SourceZip([string]$Name, [string]$Version, [string]$Mode = "ok") {
 param([switch]$KeyOnly)
 $ErrorActionPreference = "Stop"
 if (-not $KeyOnly) { exit 64 }
+Write-Host -NoNewline "OPENAI_IMAGE_API_KEY: "
 $FixtureKey = [Console]::In.ReadLine()
+Write-Host ""
 if ([string]::IsNullOrWhiteSpace($FixtureKey)) { exit 65 }
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot ".env.local"), "OPENAI_IMAGE_BASE_URL=https://api.schyler.top`nOPENAI_IMAGE_API_KEY=stored`n", (New-Object Text.UTF8Encoding($false)))
 New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot "dist"), (Join-Path $HOME ".codex") | Out-Null
@@ -70,7 +85,8 @@ Write-Host "Verification: OK"
       Remove-Item -Force (Join-Path $Tree "go.mod")
     }
   }
-  Compress-Archive -Path $Tree -DestinationPath $Archive
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::CreateFromDirectory($SourceParent, $Archive)
   return $Archive
 }
 
@@ -162,7 +178,8 @@ function Set-TestHome([string]$HomePath) {
 function Invoke-TestBootstrap(
   [string]$HomePath,
   [string]$Archive,
-  [switch]$WithoutHomeEnvironment
+  [switch]$WithoutHomeEnvironment,
+  [switch]$FailTransactionCleanup
 ) {
   Set-TestHome $HomePath
   if ($WithoutHomeEnvironment) {
@@ -170,6 +187,11 @@ function Invoke-TestBootstrap(
     Assert-True ($null -eq [Environment]::GetEnvironmentVariable("HOME", "Process")) "HOME fixture was not removed"
   }
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE", $Archive, "Process")
+  [Environment]::SetEnvironmentVariable(
+    "BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP",
+    $(if ($FailTransactionCleanup) { "1" } else { $null }),
+    "Process"
+  )
   $InputFile = Join-Path $TempRoot ("stdin-" + [Guid]::NewGuid().ToString("N"))
   try {
     [IO.File]::WriteAllText($InputFile, ($SecretText + "`r`nignored`r`n"), (New-Object Text.UTF8Encoding($false)))
@@ -228,6 +250,19 @@ function Invoke-WebRequest {
   param([string]$Uri, [string]$OutFile)
   Copy-Item -LiteralPath $env:BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE -Destination $OutFile
 }
+function Remove-Item {
+  [CmdletBinding()]
+  param(
+    [string]$LiteralPath,
+    [switch]$Recurse,
+    [switch]$Force
+  )
+  if ($env:BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP -eq "1" -and
+      $LiteralPath -like "*.image2-mcp-bootstrap.*") {
+    throw "fixture transaction cleanup failure"
+  }
+  Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
+}
 . $env:BOOTSTRAP_FIXTURE_HELPER
 Invoke-AgentBootstrap
 '@, (New-Object Text.UTF8Encoding($false)))
@@ -246,6 +281,8 @@ Invoke-AgentBootstrap
   $UnsafePrefixLast = New-UnsafePrefixZip "unsafe-prefix-last" -ChildFirst
   $UnsafeSymlink = New-UnsafeAttributeZip "unsafe-symlink" -1577123840
   $UnsafeReparse = New-UnsafeAttributeZip "unsafe-reparse" ([int][IO.FileAttributes]::ReparsePoint)
+  Assert-ZipContains $Fail "image2-mcp-0.2.1/.fixture-install-fail" "failure fixture marker was omitted from ZIP"
+  Assert-ZipContains $ConfigPathFail "image2-mcp-0.2.1/.fixture-config-path-fail" "config failure fixture marker was omitted from ZIP"
 
   # First install and clean repeat.
   $CleanHome = Join-Path $TempRoot "clean-home"
@@ -253,6 +290,7 @@ Invoke-AgentBootstrap
   [IO.File]::WriteAllText((Join-Path $CleanHome ".codex\config.toml"), "original config`n", (New-Object Text.UTF8Encoding($false)))
   $First = Invoke-TestBootstrap $CleanHome $V1
   Assert-True ($First.ExitCode -eq 0) "first install failed"
+  Assert-True ($First.Output.Contains("OPENAI_IMAGE_API_KEY:")) "bootstrap did not expose the key prompt"
   Assert-True (-not $First.Output.Contains($SecretText)) "first install leaked key"
   $CleanTarget = Join-Path $CleanHome "AppData\Local\image2-mcp"
   Assert-Contains (Join-Path $CleanTarget "version.txt") "version-one" "first install source is wrong"
@@ -266,6 +304,17 @@ Invoke-AgentBootstrap
   Assert-Contains (Join-Path $CleanBackups[0].FullName "version.txt") "version-one" "clean repeat backup is wrong"
   Assert-True ($CleanRepeat.Output.Contains("Previous installation retained at:")) "repeat omitted backup path"
   Assert-True ($CleanRepeat.Output.Contains("Previous local and customer content is not active in the refreshed target.")) "repeat omitted inactive-content warning"
+
+  # A completed repeat with failed cleanup reports transaction and previous-target evidence.
+  $CleanupHome = Join-Path $TempRoot "cleanup-failure-home"
+  $CleanupFirst = Invoke-TestBootstrap $CleanupHome $V1
+  Assert-True ($CleanupFirst.ExitCode -eq 0) "cleanup failure setup failed"
+  $CleanupResult = Invoke-TestBootstrap $CleanupHome $V2 -FailTransactionCleanup
+  Assert-True ($CleanupResult.ExitCode -ne 0) "transaction cleanup failure unexpectedly succeeded"
+  Assert-True ($CleanupResult.Output.Contains("Transaction cleanup failed; evidence retained.")) "cleanup failure omitted diagnostic"
+  Assert-True ($CleanupResult.Output.Contains("Retained transaction evidence:")) "cleanup failure omitted transaction path"
+  Assert-True ($CleanupResult.Output.Contains("Previous installation retained at:")) "cleanup failure omitted previous installation path"
+  Assert-True (-not $CleanupResult.Output.Contains($SecretText)) "cleanup failure leaked key"
 
   # Exact Git repeat preserves commits, dirty files, untracked/ignored data, junctions, empty dirs, case and prefix collisions.
   $GitHome = Join-Path $TempRoot "git-home"
@@ -439,6 +488,7 @@ Invoke-AgentBootstrap
   Assert-True ($RetainedTransactions.Count -eq 1) "config-path failure did not retain exactly one transaction"
   $RetainedTransaction = $RetainedTransactions[0].FullName
   Assert-True ($Recovery.Output.Contains("Retained transaction evidence:")) "config-path failure omitted retained transaction report"
+  Assert-True ($Recovery.Output.Contains("Retained failed target evidence:")) "config-path failure omitted failed-target path"
   Assert-True ($Recovery.Output.Contains($RetainedTransaction)) "config-path failure reported the wrong transaction path"
   Assert-True (Test-Path (Join-Path $RetainedTransaction "config.toml.before") -PathType Leaf) "config snapshot evidence was deleted"
   Assert-True (Test-Path (Join-Path $RetainedTransaction "failed-target") -PathType Container) "failed target evidence was deleted"

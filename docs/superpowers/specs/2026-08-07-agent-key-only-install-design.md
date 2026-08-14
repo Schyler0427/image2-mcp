@@ -109,9 +109,9 @@ image2-mcp_windows_amd64.zip
 ```
 
 The binary's reported MCP implementation version is updated to `0.2.1` for this
-release. Installers continue using GitHub's `releases/latest/download` URLs, so
-the `v0.2.1` Release must be the repository's latest non-draft, non-prerelease
-release.
+release. Key-only installers use the fixed GitHub
+`releases/download/v0.2.1` URLs, so a later Release cannot silently change the
+binary installed by the `v0.2.1` gate.
 
 ## Agent Bootstrap Flow
 
@@ -280,7 +280,7 @@ The workflow fails with a concrete blocker and no additional configuration
 question when it encounters:
 
 - unsupported OS or architecture;
-- no network path to the fixed GitHub repository or latest Release asset;
+- no network path to the fixed GitHub repository or pinned `v0.2.1` Release asset;
 - no Git and no supported archive download mechanism;
 - a Release that lacks the detected platform asset;
 - an unsafe or locally modified existing install directory that cannot be

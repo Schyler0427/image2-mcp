@@ -62,6 +62,16 @@ esac
 CURL
 chmod +x "$fakebin/curl"
 
+cat >"$fakebin/git" <<'GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${BOOTSTRAP_FIXTURE_BLOCK_GIT:-0}" == 1 ]]; then
+  exit 97
+fi
+exec /usr/bin/git "$@"
+GIT
+chmod +x "$fakebin/git"
+
 cat >"$fakebin/mv" <<'MV'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -113,6 +123,20 @@ fi
 CP
 chmod +x "$fakebin/cp"
 
+cat >"$fakebin/rm" <<'RM'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP:-0}" == 1 ]]; then
+  for argument in "$@"; do
+    case "$argument" in
+      */.image2-mcp-bootstrap.*) exit 76 ;;
+    esac
+  done
+fi
+/bin/rm "$@"
+RM
+chmod +x "$fakebin/rm"
+
 make_source_archive() {
   local name="$1" version="$2" mode="${3:-ok}" tree archive
   tree="$tmp/sources/$name/image2-mcp-0.2.1"
@@ -126,7 +150,9 @@ make_source_archive() {
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "${1:-}" == '--key-only' ]] || exit 64
+printf 'OPENAI_IMAGE_API_KEY: ' >&2
 IFS= read -r fixture_key || exit 65
+printf '\n' >&2
 [[ "$fixture_key" =~ [^[:space:]] ]] || exit 66
 printf 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top\nOPENAI_IMAGE_API_KEY=stored\n' >.env.local
 chmod 600 .env.local
@@ -206,6 +232,26 @@ run_bootstrap() {
     "$helper" >"$output" 2>&1
 }
 
+run_bootstrap_without_git() {
+  local home="$1" archive="$2" output="$3"
+  printf '%s\n' 'fixture-key-redacted' |
+    HOME="$home" PATH="$fakebin:$PATH" \
+    BOOTSTRAP_FIXTURE_BLOCK_GIT=1 \
+    BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+    BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$archive" \
+    "$helper" >"$output" 2>&1
+}
+
+run_bootstrap_with_cleanup_failure() {
+  local home="$1" archive="$2" output="$3"
+  printf '%s\n' 'fixture-key-redacted' |
+    HOME="$home" PATH="$fakebin:$PATH" \
+    BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP=1 \
+    BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+    BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$archive" \
+    "$helper" >"$output" 2>&1
+}
+
 run_bootstrap_expect_failure() {
   local home="$1" archive="$2" output="$3"
   if run_bootstrap "$home" "$archive" "$output"; then
@@ -228,6 +274,22 @@ invalid_archive="$(make_source_archive invalid version-invalid invalid)"
 canonical_duplicate_archive="$(make_canonical_duplicate_archive "$v1_archive")"
 repeated_slash_archive="$(make_repeated_slash_archive "$v1_archive")"
 case_ambiguous_archive="$(make_case_ambiguous_archive "$v1_archive")"
+
+# Release validation has a POSIX-tool fallback when Python and jq are absent.
+json_tools="$tmp/json-tools"
+mkdir -p "$json_tools" "$tmp/json-txn"
+ln -s "$(command -v awk)" "$json_tools/awk"
+ln -s "$(command -v grep)" "$json_tools/grep"
+ln -s "$(command -v tr)" "$json_tools/tr"
+shell_bin="$(command -v bash)"
+PATH="$json_tools" "$shell_bin" -c 'source "$1"; txn="$2"; validate_release_json "$3"' \
+  bash "$helper" "$tmp/json-txn" "$release_json" || fail 'JSON validation fallback failed without Python or jq'
+draft_release_json="$tmp/release-draft.json"
+sed 's/"draft": false/"draft": true/' "$release_json" >"$draft_release_json"
+if PATH="$json_tools" "$shell_bin" -c 'source "$1"; txn="$2"; validate_release_json "$3"' \
+  bash "$helper" "$tmp/json-txn" "$draft_release_json" >/dev/null 2>&1; then
+  fail 'JSON validation fallback accepted a draft Release'
+fi
 
 # Case-ambiguous archives are rejected before first-install target mutation.
 case_ambiguous_home="$tmp/case-ambiguous-home"
@@ -257,6 +319,7 @@ clean_target="$clean_home/.local/share/image2-mcp"
 [[ "$(cat "$clean_target/version.txt")" == 'version-one' ]] || fail 'first install source is wrong'
 [[ "$(cat "$clean_target/.image2-mcp-managed")" == 'Schyler0427/image2-mcp' ]] || fail 'managed marker is wrong'
 assert_contains "$tmp/first.log" 'Verification: OK'
+assert_contains "$tmp/first.log" 'OPENAI_IMAGE_API_KEY:'
 assert_not_contains "$tmp/first.log" 'fixture-key-redacted'
 
 run_bootstrap "$clean_home" "$v2_archive" "$tmp/clean-repeat.log" || fail 'clean repeat failed'
@@ -266,6 +329,19 @@ clean_backup="$(find_previous_backup "$clean_home/.local/share" | sed -n '1p')"
 [[ "$(cat "$clean_backup/version.txt")" == 'version-one' ]] || fail 'clean repeat backup is not the old target'
 assert_contains "$tmp/clean-repeat.log" 'Previous installation retained at:'
 assert_contains "$tmp/clean-repeat.log" 'Previous local and customer content is not active in the refreshed target.'
+
+# A completed repeat with failed transaction cleanup reports every retained path.
+cleanup_home="$tmp/cleanup-failure-home"
+run_bootstrap "$cleanup_home" "$v1_archive" "$tmp/cleanup-first.log" || fail 'cleanup failure setup failed'
+if run_bootstrap_with_cleanup_failure "$cleanup_home" "$v2_archive" "$tmp/cleanup-failure.log"; then
+  fail 'transaction cleanup failure unexpectedly succeeded'
+fi
+cleanup_backup="$(find_previous_backup "$cleanup_home/.local/share" | sed -n '1p')"
+[[ -n "$cleanup_backup" ]] || fail 'transaction cleanup failure discarded previous installation'
+assert_contains "$tmp/cleanup-failure.log" 'recovery cleanup failed'
+assert_contains "$tmp/cleanup-failure.log" 'Transaction evidence retained at:'
+assert_contains "$tmp/cleanup-failure.log" "Previous installation retained at: $cleanup_backup"
+assert_not_contains "$tmp/cleanup-failure.log" 'fixture-key-redacted'
 
 # Exact-remote Git repeat preserves dirty/local/ignored/untracked state in the reported backup.
 git_home="$tmp/git-home"
@@ -292,7 +368,7 @@ printf 'ignored customer content\n' >"$git_target/collision/ignored.txt"
 printf 'ordinary customer content\n' >"$git_target/ordinary/customer.txt"
 printf 'prefix customer file\n' >"$git_target/customer-prefix"
 ln -s ordinary/customer.txt "$git_target/customer-link"
-run_bootstrap "$git_home" "$v2_archive" "$tmp/git-repeat.log" || fail 'Git repeat failed'
+run_bootstrap_without_git "$git_home" "$v2_archive" "$tmp/git-repeat.log" || fail 'Git repeat failed without Git'
 git_backup="$(find_previous_backup "$git_home/.local/share" | sed -n '1p')"
 [[ -n "$git_backup" && -d "$git_backup/.git" ]] || fail 'Git repeat did not retain Git backup'
 [[ "$(git -C "$git_backup" rev-parse HEAD)" == "$old_git_head" ]] || fail 'local commit was not retained'
