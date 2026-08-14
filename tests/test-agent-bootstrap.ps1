@@ -497,6 +497,15 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   [IO.File]::WriteAllText((Join-Path $ConfigWorktreeTarget ".git\config.worktree"), "[core]`n`tworktree = ../elsewhere`n", (New-Object Text.UTF8Encoding($false)))
   Assert-GitOwnershipRefusal "config.worktree" $ConfigWorktreeHome $V2 $GitWrapperPath
 
+  $DanglingConfigWorktreeHome = Join-Path $TempRoot "git-dangling-config-worktree-home"
+  $DanglingConfigWorktreeTarget = Join-Path $DanglingConfigWorktreeHome "AppData\Local\image2-mcp"
+  New-GitOwnershipTarget $DanglingConfigWorktreeTarget
+  $DanglingConfigWorktreeDestination = Join-Path $DanglingConfigWorktreeHome "missing-config-worktree"
+  New-Item -ItemType Directory -Force -Path $DanglingConfigWorktreeDestination | Out-Null
+  New-Item -ItemType Junction -Path (Join-Path $DanglingConfigWorktreeTarget ".git\config.worktree") -Target $DanglingConfigWorktreeDestination | Out-Null
+  Remove-Item -LiteralPath $DanglingConfigWorktreeDestination -Recurse -Force
+  Assert-GitOwnershipRefusal "dangling config.worktree" $DanglingConfigWorktreeHome $V2 $GitWrapperPath
+
   $WorktreeConfigHome = Join-Path $TempRoot "git-worktree-config-home"
   $WorktreeConfigTarget = Join-Path $WorktreeConfigHome "AppData\Local\image2-mcp"
   New-GitOwnershipTarget $WorktreeConfigTarget

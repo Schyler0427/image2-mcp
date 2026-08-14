@@ -89,7 +89,10 @@ function Assert-AgentBootstrapExistingTarget(
     Assert-AgentBootstrapPlainDirectory $GitPath "existing Git metadata"
     $GitConfig = Join-Path $GitPath "config"
     Assert-AgentBootstrapPlainFile $GitConfig "existing Git config"
-    if (Test-Path -LiteralPath (Join-Path $GitPath "config.worktree")) {
+    $GitConfigWorktreeEntry = @(Get-ChildItem -LiteralPath $GitPath -Force -ErrorAction Stop | Where-Object {
+      $_.Name -ceq "config.worktree"
+    } | Select-Object -First 1)[0]
+    if ($null -ne $GitConfigWorktreeEntry) {
       throw "existing Git target has unsupported ownership configuration"
     }
     $InOrigin = $false
