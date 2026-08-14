@@ -36,7 +36,7 @@ $SavedEnvironment = @{}
 foreach ($Name in @(
   "HOME", "USERPROFILE", "LOCALAPPDATA", "BOOTSTRAP_FIXTURE_HELPER",
   "BOOTSTRAP_FIXTURE_RELEASE_JSON", "BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE",
-  "BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP"
+  "BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP", "IMAGE2_MCP_REPO"
 )) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
@@ -54,10 +54,9 @@ function New-SourceZip([string]$Name, [string]$Version, [string]$Mode = "ok") {
 param([switch]$KeyOnly)
 $ErrorActionPreference = "Stop"
 if (-not $KeyOnly) { exit 64 }
+if ($env:IMAGE2_MCP_REPO -cne "Schyler0427/image2-mcp") { exit 66 }
 Write-Host -NoNewline "OPENAI_IMAGE_API_KEY: "
-[Console]::Error.WriteLine("fixture child: before stdin read")
 $FixtureKey = [Console]::In.ReadLine()
-[Console]::Error.WriteLine("fixture child: after stdin read")
 Write-Host ""
 if ([string]::IsNullOrWhiteSpace($FixtureKey)) { exit 65 }
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot ".env.local"), "OPENAI_IMAGE_BASE_URL=https://api.schyler.top`nOPENAI_IMAGE_API_KEY=stored`n", (New-Object Text.UTF8Encoding($false)))
@@ -187,11 +186,6 @@ function Invoke-TestBootstrap(
   [switch]$WithoutHomeEnvironment,
   [switch]$FailTransactionCleanup
 ) {
-  Write-Host (
-    "fixture invocation: home=" + (Split-Path -Leaf $HomePath) +
-    "; archive=" + (Split-Path -Leaf $Archive) +
-    "; cleanup-failure=" + $FailTransactionCleanup.IsPresent
-  )
   Set-TestHome $HomePath
   if ($WithoutHomeEnvironment) {
     [Environment]::SetEnvironmentVariable("HOME", $null, "Process")
@@ -212,14 +206,15 @@ function Invoke-TestBootstrap(
     $Info.Arguments = '/d /s /c ""' + $PowerShell + '" -NoProfile -ExecutionPolicy Bypass -File "' + $Harness + '" < "' + $InputFile + '""'
     $Info.UseShellExecute = $false
     $Info.RedirectStandardOutput = $true
-    $Info.RedirectStandardError = $false
+    $Info.RedirectStandardError = $true
     $Info.CreateNoWindow = $true
     $Process = New-Object Diagnostics.Process
     $Process.StartInfo = $Info
     [void]$Process.Start()
     $Stdout = $Process.StandardOutput.ReadToEnd()
+    $Stderr = $Process.StandardError.ReadToEnd()
     $Process.WaitForExit()
-    return [PSCustomObject]@{ ExitCode = $Process.ExitCode; Output = $Stdout }
+    return [PSCustomObject]@{ ExitCode = $Process.ExitCode; Output = $Stdout + $Stderr }
   } finally {
     Remove-Item -Force -ErrorAction SilentlyContinue $InputFile
   }
@@ -274,10 +269,18 @@ function Remove-Item {
   Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
 }
 . $env:BOOTSTRAP_FIXTURE_HELPER
-Invoke-AgentBootstrap
+$OriginalRepository = [Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process")
+try {
+  Invoke-AgentBootstrap
+} finally {
+  if ([Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process") -cne $OriginalRepository) {
+    throw "IMAGE2_MCP_REPO was not restored after installer invocation"
+  }
+}
 '@, (New-Object Text.UTF8Encoding($false)))
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_HELPER", $Helper, "Process")
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_RELEASE_JSON", $ReleaseJson, "Process")
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", "fixture-parent-repository", "Process")
   $HelperText = [IO.File]::ReadAllText($Helper)
   Assert-True (-not $HelperText.Contains("BOOTSTRAP_FIXTURE_")) "production helper contains test fixture override"
 

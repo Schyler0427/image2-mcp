@@ -303,29 +303,21 @@ function Invoke-AgentBootstrapInstaller(
   [string]$RepositorySlug
 ) {
   $PowerShell = Get-Command powershell.exe -CommandType Application -ErrorAction Stop
-  $Info = New-Object Diagnostics.ProcessStartInfo
-  $Info.FileName = $PowerShell.Source
-  $Info.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $InstallerPath + '" -KeyOnly'
-  $Info.WorkingDirectory = Split-Path -Parent $InstallerPath
-  $Info.UseShellExecute = $false
-  $Info.RedirectStandardOutput = $false
-  $Info.RedirectStandardError = $false
-  $Info.RedirectStandardInput = $false
-  $Info.CreateNoWindow = $true
-  $Info.EnvironmentVariables["IMAGE2_MCP_REPO"] = $RepositorySlug
-
-  $Process = New-Object Diagnostics.Process
-  $Process.StartInfo = $Info
+  $PreviousRepository = [Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process")
   try {
-    if (-not $Process.Start()) {
-      throw "key-only installer could not be started"
-    }
-    $Process.WaitForExit()
-    if ($Process.ExitCode -ne 0) {
-      throw "key-only installer failed; the previous target will be restored"
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", $RepositorySlug, "Process")
+    Push-Location (Split-Path -Parent $InstallerPath)
+    try {
+      & $PowerShell.Source -NoProfile -ExecutionPolicy Bypass -File $InstallerPath -KeyOnly
+      $InstallerExitCode = $LASTEXITCODE
+    } finally {
+      Pop-Location
     }
   } finally {
-    $Process.Dispose()
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", $PreviousRepository, "Process")
+  }
+  if ($InstallerExitCode -ne 0) {
+    throw "key-only installer failed; the previous target will be restored"
   }
 }
 
