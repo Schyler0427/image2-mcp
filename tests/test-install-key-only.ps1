@@ -92,9 +92,20 @@ public static class Program {
   Compress-Archive -Path (Join-Path $Payload "image2-mcp.exe") -DestinationPath $Fixture
   [IO.File]::WriteAllText($script:Harness, @'
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls
 
 function Invoke-WebRequest {
-  param([string]$Uri, [string]$OutFile)
+  param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
+  if (-not $UseBasicParsing) {
+    throw "fixture download did not use basic parsing"
+  }
+  $Protocols = [Net.ServicePointManager]::SecurityProtocol
+  if (($Protocols -band [Net.SecurityProtocolType]::Tls12) -eq 0) {
+    throw "fixture download did not enable TLS 1.2"
+  }
+  if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
+    throw "fixture download did not preserve TLS"
+  }
   Copy-Item -LiteralPath $env:IMAGE2_MCP_TEST_RELEASE_ZIP -Destination $OutFile
 }
 

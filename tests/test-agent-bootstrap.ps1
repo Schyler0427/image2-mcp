@@ -296,12 +296,33 @@ try {
 '@, (New-Object Text.UTF8Encoding($false)))
   [IO.File]::WriteAllText($Harness, @'
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls
 function Invoke-RestMethod {
-  param([string]$Uri)
+  param([string]$Uri, [switch]$UseBasicParsing)
+  if (-not $UseBasicParsing) {
+    throw "fixture Release gate did not use basic parsing"
+  }
+  $Protocols = [Net.ServicePointManager]::SecurityProtocol
+  if (($Protocols -band [Net.SecurityProtocolType]::Tls12) -eq 0) {
+    throw "fixture Release gate did not enable TLS 1.2"
+  }
+  if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
+    throw "fixture Release gate did not preserve TLS"
+  }
   return ([IO.File]::ReadAllText($env:BOOTSTRAP_FIXTURE_RELEASE_JSON) | ConvertFrom-Json)
 }
 function Invoke-WebRequest {
-  param([string]$Uri, [string]$OutFile)
+  param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
+  if (-not $UseBasicParsing) {
+    throw "fixture source download did not use basic parsing"
+  }
+  $Protocols = [Net.ServicePointManager]::SecurityProtocol
+  if (($Protocols -band [Net.SecurityProtocolType]::Tls12) -eq 0) {
+    throw "fixture source download did not enable TLS 1.2"
+  }
+  if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
+    throw "fixture source download did not preserve TLS"
+  }
   if (-not [string]::IsNullOrEmpty($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER)) {
     [IO.File]::WriteAllText($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER, "downloaded", (New-Object Text.UTF8Encoding($false)))
   }

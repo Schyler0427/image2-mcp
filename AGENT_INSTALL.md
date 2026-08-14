@@ -41,8 +41,16 @@ Use `curl -fL URL -o FILE`, or use `wget -O FILE URL` only when curl is
 unavailable. Then start the downloaded `scripts/bootstrap-agent-install.sh`
 with Bash. Do not add arguments.
 
-On Windows, download this exact repository-owned helper to a newly created
-temporary file with `Invoke-WebRequest -Uri URL -OutFile FILE`:
+On Windows, before downloading the helper, add TLS 1.2 to the process protocol
+flags without replacing existing flags:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol =
+  [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+```
+
+Then download this exact repository-owned helper to a newly created temporary
+file with `Invoke-WebRequest -UseBasicParsing -Uri URL -OutFile FILE`:
 
 `https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/scripts/bootstrap-agent-install.ps1`
 

@@ -2,6 +2,11 @@ function Test-AgentBootstrapReparsePoint([IO.FileSystemInfo]$Item) {
   return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
 }
 
+function Enable-Image2Tls12 {
+  [Net.ServicePointManager]::SecurityProtocol =
+    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+}
+
 function Get-AgentBootstrapFullPath([string]$Path) {
   $FullPath = [IO.Path]::GetFullPath($Path)
   $Root = [IO.Path]::GetPathRoot($FullPath)
@@ -526,7 +531,8 @@ function Invoke-AgentBootstrap {
   $RetainTransaction = $false
 
   try {
-    $Release = Invoke-RestMethod -Uri $ReleaseApi
+    Enable-Image2Tls12
+    $Release = Invoke-RestMethod -UseBasicParsing -Uri $ReleaseApi
     Assert-AgentBootstrapRelease $Release $RequiredAssets
 
     $ExistingTarget = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
@@ -536,7 +542,7 @@ function Invoke-AgentBootstrap {
     }
 
     $ArchivePath = Join-Path $TransactionPath "source.zip"
-    Invoke-WebRequest -Uri $SourceUrl -OutFile $ArchivePath
+    Invoke-WebRequest -UseBasicParsing -Uri $SourceUrl -OutFile $ArchivePath
     Assert-AgentBootstrapZip $ArchivePath $SourceRoot $RequiredArchivePaths
 
     $ExtractPath = Join-Path $TransactionPath "extract"

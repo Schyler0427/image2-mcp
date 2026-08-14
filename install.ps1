@@ -17,6 +17,11 @@ $BoundInstallerParameters = @{} + $PSBoundParameters
 $RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:KeyOnlyApiKey = ""
 
+function Enable-Image2Tls12 {
+  [Net.ServicePointManager]::SecurityProtocol =
+    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+}
+
 function Show-Help {
   @"
 Usage: powershell -ExecutionPolicy Bypass -File .\install.ps1 [options]
@@ -241,7 +246,8 @@ function Install-Prebuilt {
   New-Item -ItemType Directory -Force -Path $TempDir, $ExtractDir | Out-Null
   try {
     Write-Host "==> Downloading prebuilt binary: $Url"
-    Invoke-WebRequest -Uri $Url -OutFile $ZipPath
+    Enable-Image2Tls12
+    Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $ZipPath
     Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
     if (-not (Test-Path $StagedBinary) -or (Get-Item $StagedBinary).Length -eq 0) {
       throw "prebuilt archive does not contain a non-empty image2-mcp.exe"
