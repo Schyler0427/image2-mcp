@@ -4,6 +4,8 @@ set -euo pipefail
 readonly_repo_url='https://github.com/Schyler0427/image2-mcp.git'
 readonly_repo_slug='Schyler0427/image2-mcp'
 readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1'
+readonly_release_page='https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.1'
+readonly_release_assets_page='https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.1'
 readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.tar.gz'
 readonly_source_root='image2-mcp-0.2.1'
 readonly_base_url='https://api.schyler.top'
@@ -48,9 +50,9 @@ arch_name() {
 download_file() {
   local url="$1" output="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fL -sS "$url" -o "$output"
+    curl -fL -sS --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 30 "$url" -o "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget -O "$output" "$url"
+    wget --tries=3 --timeout=15 -O "$output" "$url"
   else
     fail 'curl or wget is required'
   fi
@@ -71,6 +73,7 @@ expected = {
     "image2-mcp_windows_arm64.zip",
     "image2-mcp_windows_amd64.zip",
 }
+
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     release = json.load(handle)
 assets = {item.get("name") for item in release.get("assets", []) if isinstance(item, dict)}
@@ -117,6 +120,33 @@ PY
     grep -Fq "\"name\":\"$asset\"" "$compact" ||
       fail "public v0.2.1 Release is missing required asset: $asset"
   done
+}
+
+validate_release_page() {
+  local page_file="$txn/release.html" assets_file="$txn/release-assets.html" asset
+  download_file "$readonly_release_page" "$page_file" || return 1
+  grep -Fq '<title>Release v0.2.1 · Schyler0427/image2-mcp · GitHub</title>' "$page_file" || return 1
+  if grep -Eiq '>Pre-release<' "$page_file"; then
+    return 1
+  fi
+  download_file "$readonly_release_assets_page" "$assets_file" || return 1
+  for asset in \
+    'image2-mcp_darwin_arm64.tar.gz' \
+    'image2-mcp_darwin_amd64.tar.gz' \
+    'image2-mcp_linux_arm64.tar.gz' \
+    'image2-mcp_linux_amd64.tar.gz' \
+    'image2-mcp_windows_arm64.zip' \
+    'image2-mcp_windows_amd64.zip'; do
+    grep -Fq "/releases/download/v0.2.1/$asset" "$assets_file" || return 1
+  done
+}
+
+validate_release_gate() {
+  local json_file="$1"
+  if validate_release_json "$json_file"; then
+    return 0
+  fi
+  validate_release_page
 }
 
 validate_existing_target() {
@@ -379,7 +409,8 @@ main() {
 
   release_json="$txn/release.json"
   download_file "$readonly_release_api" "$release_json"
-  validate_release_json "$release_json" || fail 'public v0.2.1 Release gate failed'
+  validate_release_gate "$release_json" ||
+    fail 'public v0.2.1 Release gate failed; GitHub API and public Release page checks did not pass'
 
   if [[ -e "$target" || -L "$target" ]]; then
     validate_existing_target

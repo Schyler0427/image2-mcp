@@ -65,6 +65,43 @@ function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
   }
 }
 
+function Assert-AgentBootstrapReleasePage(
+  [string]$PageContent,
+  [string]$AssetsContent,
+  [string[]]$RequiredAssets
+) {
+  if ([string]::IsNullOrEmpty($PageContent) -or
+      -not $PageContent.Contains('<title>Release v0.2.1 · Schyler0427/image2-mcp · GitHub</title>')) {
+    throw "public Release page returned the wrong tag"
+  }
+  if ([regex]::IsMatch($PageContent, '(?i)>Pre-release<')) {
+    throw "public v0.2.1 Release must not be a prerelease"
+  }
+  if ([string]::IsNullOrEmpty($AssetsContent)) {
+    throw "public Release asset page was empty"
+  }
+  foreach ($Name in $RequiredAssets) {
+    if (-not $AssetsContent.Contains("/releases/download/v0.2.1/$Name")) {
+      throw "public v0.2.1 Release is missing required asset: $Name"
+    }
+  }
+}
+
+function Invoke-AgentBootstrapWebPage([string]$Uri) {
+  $LastError = $null
+  for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+    try {
+      return Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri $Uri
+    } catch {
+      $LastError = $_.Exception
+      if ($Attempt -lt 3) {
+        Start-Sleep -Seconds 2
+      }
+    }
+  }
+  throw $LastError
+}
+
 function Assert-AgentBootstrapExistingTarget(
   [string]$Target,
   [string]$RepositoryUrl,
@@ -485,6 +522,8 @@ function Invoke-AgentBootstrap {
   $RepositoryUrl = "https://github.com/Schyler0427/image2-mcp.git"
   $RepositorySlug = "Schyler0427/image2-mcp"
   $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1"
+  $ReleasePageUrl = "https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.1"
+  $ReleaseAssetsPageUrl = "https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.1"
   $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.zip"
   $SourceRoot = "image2-mcp-0.2.1"
   $BaseUrl = "https://api.schyler.top"
@@ -532,8 +571,33 @@ function Invoke-AgentBootstrap {
 
   try {
     Enable-Image2Tls12
-    $Release = Invoke-RestMethod -UseBasicParsing -Uri $ReleaseApi
-    Assert-AgentBootstrapRelease $Release $RequiredAssets
+    try {
+      $Release = $null
+      $LastApiError = $null
+      for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+        try {
+          $Release = Invoke-RestMethod -UseBasicParsing -TimeoutSec 30 -Uri $ReleaseApi
+          break
+        } catch {
+          $LastApiError = $_.Exception
+          if ($Attempt -lt 3) {
+            Start-Sleep -Seconds 2
+          }
+        }
+      }
+      if ($null -eq $Release) {
+        throw $LastApiError
+      }
+      Assert-AgentBootstrapRelease $Release $RequiredAssets
+    } catch {
+      try {
+        $ReleasePage = Invoke-AgentBootstrapWebPage $ReleasePageUrl
+        $ReleaseAssetsPage = Invoke-AgentBootstrapWebPage $ReleaseAssetsPageUrl
+        Assert-AgentBootstrapReleasePage $ReleasePage.Content $ReleaseAssetsPage.Content $RequiredAssets
+      } catch {
+        throw "public v0.2.1 Release gate failed; GitHub API and public Release page checks did not pass"
+      }
+    }
 
     $ExistingTarget = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
     if ($null -ne $ExistingTarget) {
@@ -542,7 +606,7 @@ function Invoke-AgentBootstrap {
     }
 
     $ArchivePath = Join-Path $TransactionPath "source.zip"
-    Invoke-WebRequest -UseBasicParsing -Uri $SourceUrl -OutFile $ArchivePath
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri $SourceUrl -OutFile $ArchivePath
     Assert-AgentBootstrapZip $ArchivePath $SourceRoot $RequiredArchivePaths
 
     $ExtractPath = Join-Path $TransactionPath "extract"

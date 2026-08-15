@@ -298,7 +298,7 @@ try {
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls
 function Invoke-RestMethod {
-  param([string]$Uri, [switch]$UseBasicParsing)
+  param([string]$Uri, [int]$TimeoutSec, [switch]$UseBasicParsing)
   if (-not $UseBasicParsing) {
     throw "fixture Release gate did not use basic parsing"
   }
@@ -312,7 +312,7 @@ function Invoke-RestMethod {
   return ([IO.File]::ReadAllText($env:BOOTSTRAP_FIXTURE_RELEASE_JSON) | ConvertFrom-Json)
 }
 function Invoke-WebRequest {
-  param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
+  param([string]$Uri, [string]$OutFile, [int]$TimeoutSec, [switch]$UseBasicParsing)
   if (-not $UseBasicParsing) {
     throw "fixture source download did not use basic parsing"
   }

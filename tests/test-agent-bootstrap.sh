@@ -32,6 +32,20 @@ cat >"$release_json" <<'JSON'
 }
 JSON
 
+release_page="$tmp/release.html"
+cat >"$release_page" <<'HTML'
+<title>Release v0.2.1 · Schyler0427/image2-mcp · GitHub</title>
+HTML
+release_assets_page="$tmp/release-assets.html"
+cat >"$release_assets_page" <<'HTML'
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_darwin_arm64.tar.gz">image2-mcp_darwin_arm64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_darwin_amd64.tar.gz">image2-mcp_darwin_amd64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_linux_arm64.tar.gz">image2-mcp_linux_arm64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_linux_amd64.tar.gz">image2-mcp_linux_amd64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_windows_arm64.zip">image2-mcp_windows_arm64.zip</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_windows_amd64.zip">image2-mcp_windows_amd64.zip</a>
+HTML
+
 cat >"$fakebin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -40,13 +54,23 @@ out=''
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
+    --retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
 done
-case "$url" in
-  https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1)
+  case "$url" in
+    https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1)
+    if [[ "${BOOTSTRAP_FIXTURE_RELEASE_API_FAIL:-0}" == 1 ]]; then
+      exit 22
+    fi
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
+    ;;
+  https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.1)
+    cp "$BOOTSTRAP_FIXTURE_RELEASE_PAGE" "$out"
+    ;;
+  https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.1)
+    cp "$BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE" "$out"
     ;;
   https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.tar.gz)
     if [[ -n "${BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER:-}" ]]; then
@@ -343,6 +367,20 @@ if PATH="$json_tools" "$shell_bin" -c 'source "$1"; txn="$2"; validate_release_j
   bash "$helper" "$tmp/json-txn" "$draft_release_json" >/dev/null 2>&1; then
   fail 'JSON validation fallback accepted a draft Release'
 fi
+
+# A blocked or rate-limited API can fall back to the public Release pages
+# without weakening the exact tag, publication, or six-asset checks.
+invalid_release_json="$tmp/release-invalid.json"
+printf '{}\n' >"$invalid_release_json"
+mkdir -p "$tmp/page-txn"
+PATH="$fakebin:$PATH" \
+  BOOTSTRAP_FIXTURE_RELEASE_API_FAIL=1 \
+  BOOTSTRAP_FIXTURE_RELEASE_JSON="$invalid_release_json" \
+  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
+  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
+  "$shell_bin" -c 'source "$1"; txn="$2"; validate_release_gate "$3"' \
+  bash "$helper" "$tmp/page-txn" "$invalid_release_json" ||
+  fail 'public Release page fallback failed'
 
 # Case-ambiguous archives are rejected before first-install target mutation.
 case_ambiguous_home="$tmp/case-ambiguous-home"
