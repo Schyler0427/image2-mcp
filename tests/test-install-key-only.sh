@@ -16,6 +16,13 @@ file_fingerprint() {
     printf 'absent\n'
   fi
 }
+file_mode() {
+  if stat -c '%a' "$1" >/dev/null 2>&1; then
+    stat -c '%a' "$1"
+  else
+    stat -f '%Lp' "$1"
+  fi
+}
 
 if grep -Fq 'IMAGE2_MCP_TEST_RELEASE_ZIP' "$root/install.ps1"; then
   fail 'production PowerShell installer contains a local Release override'
@@ -116,7 +123,7 @@ assert_contains "$home/.codex/config.toml" '/keep/image20-runner'
 assert_not_contains "$home/.codex/config.toml" '/old/runner'
 assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
 [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'image2 root table count is not 1'
-[[ "$(stat -f '%Lp' "$repo/.env.local" 2>/dev/null || stat -c '%a' "$repo/.env.local")" == 600 ]] || fail '.env.local mode is not 600'
+[[ "$(file_mode "$repo/.env.local")" == 600 ]] || fail '.env.local mode is not 600'
 [[ -x "$repo/dist/image2-mcp" ]] || fail 'binary is missing or not executable'
 (
   set -a
