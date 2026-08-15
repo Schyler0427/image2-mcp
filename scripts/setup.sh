@@ -127,6 +127,10 @@ download_prebuilt() {
     rm -rf "$tmp"
     return 1
   fi
+  if ! validate_prebuilt_archive "${tmp}/${asset}"; then
+    rm -rf "$tmp"
+    return 1
+  fi
   mkdir -p "$extract"
   if ! tar -xzf "${tmp}/${asset}" -C "$extract"; then
     rm -rf "$tmp"
@@ -140,6 +144,38 @@ download_prebuilt() {
   chmod +x "$binary"
   mv -f "$binary" "${repo_dir}/dist/image2-mcp"
   rm -rf "$tmp"
+}
+
+validate_prebuilt_archive() {
+  local archive="$1" entries entry type count=0
+  entries="$(mktemp "${TMPDIR:-/tmp}/image2-mcp-archive.XXXXXX")" || {
+    echo 'error: could not allocate prebuilt archive validation state' >&2
+    return 1
+  }
+  if ! tar -tzf "$archive" >"$entries"; then
+    rm -f "$entries"
+    echo 'error: prebuilt archive cannot be listed' >&2
+    return 1
+  fi
+  while IFS= read -r entry; do
+    if [[ "$entry" != 'image2-mcp' ]]; then
+      rm -f "$entries"
+      echo 'error: prebuilt archive contains an unexpected path' >&2
+      return 1
+    fi
+    type="$(tar -tvzf "$archive" "$entry" 2>/dev/null | sed -n '1s/^\(.\).*$/\1/p')"
+    if [[ "$type" != '-' ]]; then
+      rm -f "$entries"
+      echo 'error: prebuilt archive contains a link or unsupported path type' >&2
+      return 1
+    fi
+    count=$((count + 1))
+  done <"$entries"
+  rm -f "$entries"
+  if [[ "$count" -ne 1 ]]; then
+    echo 'error: prebuilt archive must contain exactly one image2-mcp file' >&2
+    return 1
+  fi
 }
 
 restore_terminal_echo() {

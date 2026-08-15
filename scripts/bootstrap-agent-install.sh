@@ -260,6 +260,7 @@ validate_staged_source() {
   [[ -f "$stage/install.ps1" && ! -L "$stage/install.ps1" ]] || fail 'staged source is missing install.ps1'
   [[ -f "$stage/go.mod" && ! -L "$stage/go.mod" ]] || fail 'staged source is missing go.mod'
   [[ -d "$stage/scripts" && ! -L "$stage/scripts" ]] || fail 'staged source is missing scripts/'
+  [[ -f "$stage/scripts/run-image2-mcp.sh" && ! -L "$stage/scripts/run-image2-mcp.sh" ]] || fail 'staged source is missing scripts/run-image2-mcp.sh'
   [[ -z "$(find "$stage" -type l -print -quit)" ]] || fail 'staged source contains a symlink'
   while IFS= read -r -d '' path; do
     path="${path#"$stage"/}"

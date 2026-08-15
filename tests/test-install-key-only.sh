@@ -163,6 +163,25 @@ if printf '%s\n' "$secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_
 fi
 [[ "$(cksum "$repo/dist/image2-mcp")" == "$before" ]] || fail 'failed download changed existing binary'
 
+symlink_target="$tmp/external-target"
+symlink_payload="$tmp/symlink-payload"
+symlink_fixture="$tmp/image2-mcp-symlink.tar.gz"
+printf 'external target\n' >"$symlink_target"
+mkdir -p "$symlink_payload"
+ln -s "$symlink_target" "$symlink_payload/image2-mcp"
+tar -czf "$symlink_fixture" -C "$symlink_payload" image2-mcp
+symlink_mode_before="$(file_mode "$symlink_target")"
+symlink_binary_before="$(cksum "$repo/dist/image2-mcp")"
+if printf '%s\n' "$secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$symlink_fixture" \
+  IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
+  "$repo/install.sh" --key-only >"$tmp/symlink-archive.log" 2>&1; then
+  fail 'symlink prebuilt archive unexpectedly succeeded'
+fi
+assert_contains "$tmp/symlink-archive.log" 'prebuilt archive contains a link or unsupported path type'
+[[ "$(file_mode "$symlink_target")" == "$symlink_mode_before" ]] || fail 'symlink archive changed external target'
+[[ "$(cksum "$repo/dist/image2-mcp")" == "$symlink_binary_before" ]] || fail 'symlink archive changed existing binary'
+[[ ! -L "$repo/dist/image2-mcp" ]] || fail 'symlink archive installed a symlink'
+
 array_home="$tmp/array-home"
 mkdir -p "$array_home/.codex"
 cat > "$array_home/.codex/config.toml" <<'TOML'

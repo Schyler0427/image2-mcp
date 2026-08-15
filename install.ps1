@@ -248,8 +248,11 @@ function Install-Prebuilt {
     Write-Host "==> Downloading prebuilt binary: $Url"
     Enable-Image2Tls12
     Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $ZipPath
+    Assert-Image2PrebuiltZip $ZipPath
     Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
-    if (-not (Test-Path $StagedBinary) -or (Get-Item $StagedBinary).Length -eq 0) {
+    $StagedItem = Get-Item -LiteralPath $StagedBinary -Force -ErrorAction SilentlyContinue
+    if ($null -eq $StagedItem -or $StagedItem.PSIsContainer -or
+        (Test-Image2ReparsePoint $StagedItem) -or $StagedItem.Length -eq 0) {
       throw "prebuilt archive does not contain a non-empty image2-mcp.exe"
     }
     Move-FileAtomically $StagedBinary $TargetBinary
@@ -257,6 +260,41 @@ function Install-Prebuilt {
     if (Test-Path $TempDir) {
       Remove-Item -Recurse -Force $TempDir
     }
+  }
+}
+
+function Test-Image2ReparsePoint([IO.FileSystemInfo]$Item) {
+  return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+function Assert-Image2PrebuiltZip([string]$ZipPath) {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+  $Zip = [IO.Compression.ZipFile]::OpenRead($ZipPath)
+  try {
+    if ($Zip.Entries.Count -ne 1) {
+      throw "prebuilt archive must contain exactly one image2-mcp.exe file"
+    }
+    $Entry = $Zip.Entries[0]
+    $Name = ([string]$Entry.FullName).Replace('\', '/')
+    if ($Name -cne "image2-mcp.exe" -or $Entry.Name.Length -eq 0) {
+      throw "prebuilt archive contains an unexpected path"
+    }
+    $ExternalAttributes = [int]$Entry.ExternalAttributes
+    $DosAttributes = $ExternalAttributes -band 0xFFFF
+    $UnixType = ($ExternalAttributes -shr 16) -band 0xF000
+    if (($DosAttributes -band [int][IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $UnixType -eq 0xA000) {
+      throw "prebuilt archive contains a link or reparse entry"
+    }
+    if (($DosAttributes -band [int][IO.FileAttributes]::Directory) -ne 0 -or
+        $UnixType -eq 0x4000) {
+      throw "prebuilt archive contains a directory entry"
+    }
+    if ($UnixType -ne 0 -and $UnixType -ne 0x8000) {
+      throw "prebuilt archive contains an unsupported entry type"
+    }
+  } finally {
+    $Zip.Dispose()
   }
 }
 

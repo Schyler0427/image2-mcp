@@ -182,6 +182,18 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True (-not $Config.Contains("OPENAI_IMAGE_API_KEY")) "API Key setting leaked to Codex config"
   Assert-True ((Test-Path (Join-Path $Repo "dist\image2-mcp.exe"))) "Release binary is missing"
 
+  $BadFixture = Join-Path $TempRoot "image2-mcp-extra.zip"
+  $BadExtra = Join-Path $Payload "extra.txt"
+  [IO.File]::WriteAllText($BadExtra, "unexpected entry", (New-Object Text.UTF8Encoding($false)))
+  Compress-Archive -Path (Join-Path $Payload "image2-mcp.exe"), $BadExtra -DestinationPath $BadFixture
+  $BinaryHashBefore = (Get-FileHash (Join-Path $Repo "dist\image2-mcp.exe") -Algorithm SHA256).Hash
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", $BadFixture, "Process")
+  $BadResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  Assert-True ($BadResult.ExitCode -ne 0) "multi-entry prebuilt ZIP unexpectedly succeeded"
+  Assert-True ($BadResult.Output.Contains("prebuilt archive must contain exactly one image2-mcp.exe file")) "multi-entry prebuilt ZIP error is unclear"
+  Assert-True (((Get-FileHash (Join-Path $Repo "dist\image2-mcp.exe") -Algorithm SHA256).Hash) -eq $BinaryHashBefore) "multi-entry prebuilt ZIP changed the binary"
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", $Fixture, "Process")
+
   $Bytes = [IO.File]::ReadAllBytes($EnvFile)
   Assert-True (-not ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF)) ".env.local contains a UTF-8 BOM"
   $Acl = Get-Acl $EnvFile

@@ -188,6 +188,9 @@ INSTALL
     invalid)
       rm -f "$tree/go.mod"
       ;;
+    missing-runner)
+      rm -f "$tree/scripts/run-image2-mcp.sh"
+      ;;
   esac
   tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.2.1
   printf '%s\n' "$archive"
@@ -320,6 +323,7 @@ v2_archive="$(make_source_archive v2 version-two collision)"
 fail_archive="$(make_source_archive fail version-failing fail)"
 symlink_archive="$(make_source_archive symlink version-symlink symlink)"
 invalid_archive="$(make_source_archive invalid version-invalid invalid)"
+missing_runner_archive="$(make_source_archive missing-runner version-missing-runner missing-runner)"
 canonical_duplicate_archive="$(make_canonical_duplicate_archive "$v1_archive")"
 repeated_slash_archive="$(make_repeated_slash_archive "$v1_archive")"
 case_ambiguous_archive="$(make_case_ambiguous_archive "$v1_archive")"
@@ -345,6 +349,13 @@ case_ambiguous_home="$tmp/case-ambiguous-home"
 run_bootstrap_expect_failure "$case_ambiguous_home" "$case_ambiguous_archive" "$tmp/source-case-ambiguous.log"
 assert_contains "$tmp/source-case-ambiguous.log" 'case-insensitive duplicate canonical path'
 [[ ! -e "$case_ambiguous_home/.local/share/image2-mcp" ]] || fail 'case-ambiguous archive created a target'
+
+# Required source files are validated before the helper reads the API Key.
+missing_runner_home="$tmp/missing-runner-home"
+run_bootstrap_expect_failure "$missing_runner_home" "$missing_runner_archive" "$tmp/missing-runner.log"
+assert_contains "$tmp/missing-runner.log" 'missing scripts/run-image2-mcp.sh'
+assert_not_contains "$tmp/missing-runner.log" 'OPENAI_IMAGE_API_KEY:'
+[[ ! -e "$missing_runner_home/.local/share/image2-mcp" ]] || fail 'missing-runner archive created a target'
 
 # Handled signals terminate with their conventional status instead of resuming.
 signal_home="$tmp/signal-home"
