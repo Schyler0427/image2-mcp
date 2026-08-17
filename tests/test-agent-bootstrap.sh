@@ -18,7 +18,7 @@ mkdir -p "$fakebin" "$tmp/sources"
 release_json="$tmp/release.json"
 cat >"$release_json" <<'JSON'
 {
-  "tag_name": "v0.2.1",
+  "tag_name": "v0.2.2",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -34,16 +34,16 @@ JSON
 
 release_page="$tmp/release.html"
 cat >"$release_page" <<'HTML'
-<title>Release v0.2.1 · Schyler0427/image2-mcp · GitHub</title>
+<title>Release v0.2.2 · Schyler0427/image2-mcp · GitHub</title>
 HTML
 release_assets_page="$tmp/release-assets.html"
 cat >"$release_assets_page" <<'HTML'
-<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_darwin_arm64.tar.gz">image2-mcp_darwin_arm64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_darwin_amd64.tar.gz">image2-mcp_darwin_amd64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_linux_arm64.tar.gz">image2-mcp_linux_arm64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_linux_amd64.tar.gz">image2-mcp_linux_amd64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_windows_arm64.zip">image2-mcp_windows_arm64.zip</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.2.1/image2-mcp_windows_amd64.zip">image2-mcp_windows_amd64.zip</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.2/image2-mcp_darwin_arm64.tar.gz">image2-mcp_darwin_arm64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.2/image2-mcp_darwin_amd64.tar.gz">image2-mcp_darwin_amd64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.2/image2-mcp_linux_arm64.tar.gz">image2-mcp_linux_arm64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.2/image2-mcp_linux_amd64.tar.gz">image2-mcp_linux_amd64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.2/image2-mcp_windows_arm64.zip">image2-mcp_windows_arm64.zip</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.2.2/image2-mcp_windows_amd64.zip">image2-mcp_windows_amd64.zip</a>
 HTML
 
 cat >"$fakebin/curl" <<'CURL'
@@ -60,19 +60,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
   case "$url" in
-    https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1)
+    https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.2)
     if [[ "${BOOTSTRAP_FIXTURE_RELEASE_API_FAIL:-0}" == 1 ]]; then
       exit 22
     fi
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.1)
+  https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.2)
     cp "$BOOTSTRAP_FIXTURE_RELEASE_PAGE" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.1)
+  https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.2)
     cp "$BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.tar.gz)
+  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.2.tar.gz)
     if [[ -n "${BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER:-}" ]]; then
       : >"$BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER"
     fi
@@ -171,7 +171,7 @@ chmod +x "$fakebin/rm"
 
 make_source_archive() {
   local name="$1" version="$2" mode="${3:-ok}" tree archive
-  tree="$tmp/sources/$name/image2-mcp-0.2.1"
+  tree="$tmp/sources/$name/image2-mcp-0.2.2"
   archive="$tmp/sources/$name.tar.gz"
   mkdir -p "$tree/scripts"
   printf 'module fixture\n' >"$tree/go.mod"
@@ -216,7 +216,7 @@ INSTALL
       rm -f "$tree/scripts/run-image2-mcp.sh"
       ;;
   esac
-  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.2.1
+  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.2.2
   printf '%s\n' "$archive"
 }
 
@@ -225,10 +225,10 @@ make_canonical_duplicate_archive() {
   local archive="$tmp/sources/canonical-duplicate.tar.gz"
   local file_tree="$tmp/sources/canonical-file" directory_tree="$tmp/sources/canonical-directory"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$file_tree/image2-mcp-0.2.1" "$directory_tree/image2-mcp-0.2.1/canonical-path"
-  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.2.1/canonical-path"
-  tar -rf "$plain" -C "$file_tree" image2-mcp-0.2.1/canonical-path
-  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.2.1/canonical-path
+  mkdir -p "$file_tree/image2-mcp-0.2.2" "$directory_tree/image2-mcp-0.2.2/canonical-path"
+  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.2.2/canonical-path"
+  tar -rf "$plain" -C "$file_tree" image2-mcp-0.2.2/canonical-path
+  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.2.2/canonical-path
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -237,9 +237,9 @@ make_repeated_slash_archive() {
   local base_archive="$1" plain="$tmp/sources/repeated-slash.tar"
   local archive="$tmp/sources/repeated-slash.tar.gz" tree="$tmp/sources/repeated-slash"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$tree/image2-mcp-0.2.1/repeated"
-  printf 'repeated slash path\n' >"$tree/image2-mcp-0.2.1/repeated/path.txt"
-  tar -rf "$plain" -C "$tree" image2-mcp-0.2.1//repeated/path.txt
+  mkdir -p "$tree/image2-mcp-0.2.2/repeated"
+  printf 'repeated slash path\n' >"$tree/image2-mcp-0.2.2/repeated/path.txt"
+  tar -rf "$plain" -C "$tree" image2-mcp-0.2.2//repeated/path.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -249,11 +249,11 @@ make_case_ambiguous_archive() {
   local archive="$tmp/sources/case-ambiguous.tar.gz"
   local upper_tree="$tmp/sources/case-upper" lower_tree="$tmp/sources/case-lower"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$upper_tree/image2-mcp-0.2.1" "$lower_tree/image2-mcp-0.2.1"
-  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.2.1/CasePath.txt"
-  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.2.1/casepath.txt"
-  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.2.1/CasePath.txt
-  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.2.1/casepath.txt
+  mkdir -p "$upper_tree/image2-mcp-0.2.2" "$lower_tree/image2-mcp-0.2.2"
+  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.2.2/CasePath.txt"
+  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.2.2/casepath.txt"
+  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.2.2/CasePath.txt
+  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.2.2/casepath.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }

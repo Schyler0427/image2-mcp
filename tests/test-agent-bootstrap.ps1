@@ -45,7 +45,7 @@ foreach ($Name in @(
 
 function New-SourceZip([string]$Name, [string]$Version, [string]$Mode = "ok") {
   $SourceParent = Join-Path $TempRoot ("source-" + $Name)
-  $Tree = Join-Path $SourceParent "image2-mcp-0.2.1"
+  $Tree = Join-Path $SourceParent "image2-mcp-0.2.2"
   $Archive = Join-Path $TempRoot ($Name + ".zip")
   New-Item -ItemType Directory -Force -Path (Join-Path $Tree "scripts") | Out-Null
   [IO.File]::WriteAllText((Join-Path $Tree "go.mod"), "module fixture`n", (New-Object Text.UTF8Encoding($false)))
@@ -111,12 +111,12 @@ function New-UnsafeCaseZip {
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   try {
     foreach ($Name in @(
-      "image2-mcp-0.2.1/install.sh",
-      "image2-mcp-0.2.1/install.ps1",
-      "image2-mcp-0.2.1/go.mod",
-      "image2-mcp-0.2.1/scripts/run-image2-mcp.ps1",
-      "image2-mcp-0.2.1/Case.txt",
-      "image2-mcp-0.2.1/case.txt"
+      "image2-mcp-0.2.2/install.sh",
+      "image2-mcp-0.2.2/install.ps1",
+      "image2-mcp-0.2.2/go.mod",
+      "image2-mcp-0.2.2/scripts/run-image2-mcp.ps1",
+      "image2-mcp-0.2.2/Case.txt",
+      "image2-mcp-0.2.2/case.txt"
     )) {
       Add-TestZipEntry $Zip $Name
     }
@@ -133,15 +133,15 @@ function New-UnsafePrefixZip([string]$Name, [switch]$ChildFirst) {
   $Stream = [IO.File]::Open($Archive, [IO.FileMode]::Create)
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   $Required = @(
-    "image2-mcp-0.2.1/install.sh",
-    "image2-mcp-0.2.1/install.ps1",
-    "image2-mcp-0.2.1/go.mod",
-    "image2-mcp-0.2.1/scripts/run-image2-mcp.ps1"
+    "image2-mcp-0.2.2/install.sh",
+    "image2-mcp-0.2.2/install.ps1",
+    "image2-mcp-0.2.2/go.mod",
+    "image2-mcp-0.2.2/scripts/run-image2-mcp.ps1"
   )
   $Collision = if ($ChildFirst) {
-    @("image2-mcp-0.2.1/prefix/child.txt", "image2-mcp-0.2.1/prefix")
+    @("image2-mcp-0.2.2/prefix/child.txt", "image2-mcp-0.2.2/prefix")
   } else {
-    @("image2-mcp-0.2.1/prefix", "image2-mcp-0.2.1/prefix/child.txt")
+    @("image2-mcp-0.2.2/prefix", "image2-mcp-0.2.2/prefix/child.txt")
   }
   try {
     foreach ($EntryName in @($Required + $Collision)) {
@@ -161,14 +161,14 @@ function New-UnsafeAttributeZip([string]$Name, [int]$ExternalAttributes) {
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   try {
     foreach ($EntryName in @(
-      "image2-mcp-0.2.1/install.sh",
-      "image2-mcp-0.2.1/install.ps1",
-      "image2-mcp-0.2.1/go.mod",
-      "image2-mcp-0.2.1/scripts/run-image2-mcp.ps1"
+      "image2-mcp-0.2.2/install.sh",
+      "image2-mcp-0.2.2/install.ps1",
+      "image2-mcp-0.2.2/go.mod",
+      "image2-mcp-0.2.2/scripts/run-image2-mcp.ps1"
     )) {
       Add-TestZipEntry $Zip $EntryName
     }
-    Add-TestZipEntry $Zip "image2-mcp-0.2.1/unsafe-link" $ExternalAttributes
+    Add-TestZipEntry $Zip "image2-mcp-0.2.2/unsafe-link" $ExternalAttributes
   } finally {
     $Zip.Dispose()
     $Stream.Dispose()
@@ -281,7 +281,7 @@ try {
   New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
   [IO.File]::WriteAllText($ReleaseJson, @'
 {
-  "tag_name": "v0.2.1",
+  "tag_name": "v0.2.2",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -350,9 +350,9 @@ $PageRequiredAssets = @(
   "image2-mcp_windows_arm64.zip",
   "image2-mcp_windows_amd64.zip"
 )
-$PageFixture = '<title>Release v0.2.1 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'
+$PageFixture = '<title>Release v0.2.2 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'
 $AssetFixture = ($PageRequiredAssets | ForEach-Object {
-  "/Schyler0427/image2-mcp/releases/download/v0.2.1/$_"
+  "/Schyler0427/image2-mcp/releases/download/v0.2.2/$_"
 }) -join "`n"
 Assert-AgentBootstrapReleasePage $PageFixture $AssetFixture $PageRequiredAssets
 $OriginalRepository = [Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process")
@@ -394,8 +394,8 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   $UnsafePrefixLast = New-UnsafePrefixZip "unsafe-prefix-last" -ChildFirst
   $UnsafeSymlink = New-UnsafeAttributeZip "unsafe-symlink" -1577123840
   $UnsafeReparse = New-UnsafeAttributeZip "unsafe-reparse" ([int][IO.FileAttributes]::ReparsePoint)
-  Assert-ZipContains $Fail "image2-mcp-0.2.1/.fixture-install-fail" "failure fixture marker was omitted from ZIP"
-  Assert-ZipContains $ConfigPathFail "image2-mcp-0.2.1/.fixture-config-path-fail" "config failure fixture marker was omitted from ZIP"
+  Assert-ZipContains $Fail "image2-mcp-0.2.2/.fixture-install-fail" "failure fixture marker was omitted from ZIP"
+  Assert-ZipContains $ConfigPathFail "image2-mcp-0.2.2/.fixture-config-path-fail" "config failure fixture marker was omitted from ZIP"
 
   # First install and clean repeat.
   $CleanHome = Join-Path $TempRoot "clean-home"

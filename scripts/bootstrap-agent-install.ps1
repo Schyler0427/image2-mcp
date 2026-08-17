@@ -42,14 +42,14 @@ function Assert-AgentBootstrapPlainDirectory([string]$Path, [string]$Description
 }
 
 function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
-  if ($null -eq $Release -or $Release.tag_name -cne "v0.2.1") {
+  if ($null -eq $Release -or $Release.tag_name -cne "v0.2.2") {
     throw "public Release gate returned the wrong tag"
   }
   if ($Release.draft -isnot [bool] -or $Release.draft) {
-    throw "public v0.2.1 Release must not be a draft"
+    throw "public v0.2.2 Release must not be a draft"
   }
   if ($Release.prerelease -isnot [bool] -or $Release.prerelease) {
-    throw "public v0.2.1 Release must not be a prerelease"
+    throw "public v0.2.2 Release must not be a prerelease"
   }
 
   $AssetNames = @()
@@ -60,7 +60,7 @@ function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
   }
   foreach ($Name in $RequiredAssets) {
     if (-not ($AssetNames -ccontains $Name)) {
-      throw "public v0.2.1 Release is missing required asset: $Name"
+      throw "public v0.2.2 Release is missing required asset: $Name"
     }
   }
 }
@@ -70,20 +70,20 @@ function Assert-AgentBootstrapReleasePage(
   [string]$AssetsContent,
   [string[]]$RequiredAssets
 ) {
-  $ExpectedTitle = '<title>Release v0.2.1 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'
+  $ExpectedTitle = '<title>Release v0.2.2 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'
   if ([string]::IsNullOrEmpty($PageContent) -or
       -not $PageContent.Contains($ExpectedTitle)) {
     throw "public Release page returned the wrong tag"
   }
   if ([regex]::IsMatch($PageContent, '(?i)>Pre-release<')) {
-    throw "public v0.2.1 Release must not be a prerelease"
+    throw "public v0.2.2 Release must not be a prerelease"
   }
   if ([string]::IsNullOrEmpty($AssetsContent)) {
     throw "public Release asset page was empty"
   }
   foreach ($Name in $RequiredAssets) {
-    if (-not $AssetsContent.Contains("/releases/download/v0.2.1/$Name")) {
-      throw "public v0.2.1 Release is missing required asset: $Name"
+    if (-not $AssetsContent.Contains("/releases/download/v0.2.2/$Name")) {
+      throw "public v0.2.2 Release is missing required asset: $Name"
     }
   }
 }
@@ -522,11 +522,11 @@ function Invoke-AgentBootstrap {
   $ErrorActionPreference = "Stop"
   $RepositoryUrl = "https://github.com/Schyler0427/image2-mcp.git"
   $RepositorySlug = "Schyler0427/image2-mcp"
-  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1"
-  $ReleasePageUrl = "https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.1"
-  $ReleaseAssetsPageUrl = "https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.1"
-  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.1.zip"
-  $SourceRoot = "image2-mcp-0.2.1"
+  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.2"
+  $ReleasePageUrl = "https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.2"
+  $ReleaseAssetsPageUrl = "https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.2"
+  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.2.zip"
+  $SourceRoot = "image2-mcp-0.2.2"
   $BaseUrl = "https://api.schyler.top"
   $RequiredAssets = @(
     "image2-mcp_darwin_arm64.tar.gz",
@@ -596,7 +596,7 @@ function Invoke-AgentBootstrap {
         $ReleaseAssetsPage = Invoke-AgentBootstrapWebPage $ReleaseAssetsPageUrl
         Assert-AgentBootstrapReleasePage $ReleasePage.Content $ReleaseAssetsPage.Content $RequiredAssets
       } catch {
-        throw "public v0.2.1 Release gate failed; GitHub API and public Release page checks did not pass"
+        throw "public v0.2.2 Release gate failed; GitHub API and public Release page checks did not pass"
       }
     }
 
