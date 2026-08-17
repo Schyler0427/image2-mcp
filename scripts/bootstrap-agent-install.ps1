@@ -70,8 +70,9 @@ function Assert-AgentBootstrapReleasePage(
   [string]$AssetsContent,
   [string[]]$RequiredAssets
 ) {
+  $ExpectedTitle = '<title>Release v0.2.1 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'
   if ([string]::IsNullOrEmpty($PageContent) -or
-      -not $PageContent.Contains('<title>Release v0.2.1 · Schyler0427/image2-mcp · GitHub</title>')) {
+      -not $PageContent.Contains($ExpectedTitle)) {
     throw "public Release page returned the wrong tag"
   }
   if ([regex]::IsMatch($PageContent, '(?i)>Pre-release<')) {

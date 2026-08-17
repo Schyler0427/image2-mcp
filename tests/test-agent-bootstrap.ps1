@@ -342,6 +342,19 @@ function Remove-Item {
   Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
 }
 . $env:BOOTSTRAP_FIXTURE_HELPER
+$PageRequiredAssets = @(
+  "image2-mcp_darwin_arm64.tar.gz",
+  "image2-mcp_darwin_amd64.tar.gz",
+  "image2-mcp_linux_arm64.tar.gz",
+  "image2-mcp_linux_amd64.tar.gz",
+  "image2-mcp_windows_arm64.zip",
+  "image2-mcp_windows_amd64.zip"
+)
+$PageFixture = '<title>Release v0.2.1 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'
+$AssetFixture = ($PageRequiredAssets | ForEach-Object {
+  "/Schyler0427/image2-mcp/releases/download/v0.2.1/$_"
+}) -join "`n"
+Assert-AgentBootstrapReleasePage $PageFixture $AssetFixture $PageRequiredAssets
 $OriginalRepository = [Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process")
 try {
   Invoke-AgentBootstrap

@@ -408,7 +408,11 @@ main() {
   trap 'terminate_from_signal 143' TERM
 
   release_json="$txn/release.json"
-  download_file "$readonly_release_api" "$release_json"
+  if ! download_file "$readonly_release_api" "$release_json"; then
+    # A blocked or rate-limited API must still be able to reach the strict
+    # public Release-page fallback below.
+    printf '{}\n' >"$release_json"
+  fi
   validate_release_gate "$release_json" ||
     fail 'public v0.2.1 Release gate failed; GitHub API and public Release page checks did not pass'
 

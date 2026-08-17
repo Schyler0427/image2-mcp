@@ -382,6 +382,24 @@ PATH="$fakebin:$PATH" \
   bash "$helper" "$tmp/page-txn" "$invalid_release_json" ||
   fail 'public Release page fallback failed'
 
+# The main bootstrap must also fall back when the API download itself returns
+# an HTTP failure; validating an already-downloaded invalid JSON is not enough.
+api_failure_home="$tmp/api-failure-home"
+if ! printf '%s\n' 'fixture-key-redacted' |
+  HOME="$api_failure_home" PATH="$fakebin:$PATH" \
+  BOOTSTRAP_FIXTURE_RELEASE_API_FAIL=1 \
+  BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
+  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
+  BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v1_archive" \
+  "$helper" >"$tmp/api-failure.log" 2>&1; then
+  fail 'API download failure did not recover through the public Release pages'
+fi
+assert_contains "$tmp/api-failure.log" 'Verification: OK'
+assert_not_contains "$tmp/api-failure.log" 'fixture-key-redacted'
+[[ -f "$api_failure_home/.local/share/image2-mcp/dist/image2-mcp" ]] ||
+  fail 'API download fallback did not complete installation'
+
 # Case-ambiguous archives are rejected before first-install target mutation.
 case_ambiguous_home="$tmp/case-ambiguous-home"
 run_bootstrap_expect_failure "$case_ambiguous_home" "$case_ambiguous_archive" "$tmp/source-case-ambiguous.log"
