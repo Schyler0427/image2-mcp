@@ -3,7 +3,9 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 doc="$root/AGENT_INSTALL.md"
 workflow="$root/.github/workflows/release.yml"
+windows_installer="$root/install.ps1"
 [[ -f "$doc" ]] || { echo 'FAIL: AGENT_INSTALL.md missing' >&2; exit 1; }
+[[ -f "$windows_installer" ]] || { echo 'FAIL: install.ps1 missing' >&2; exit 1; }
 for required in \
   'https://github.com/Schyler0427/image2-mcp' \
   'Schyler0427/image2-mcp' \
@@ -26,6 +28,14 @@ if grep -Fq '.image2-mcp-source-manifest' "$doc"; then
   echo 'FAIL: Agent guide still delegates a prose manifest algorithm' >&2
   exit 1
 fi
+if grep -Fq '$Security.SetAccessRuleProtection($true, $false)' "$windows_installer"; then
+  echo 'FAIL: Windows key-only installer still requires protected ACL elevation' >&2
+  exit 1
+fi
+grep -Fq '$Security = Get-Acl -Path $Path' "$windows_installer" || {
+  echo 'FAIL: Windows key-only installer does not preserve the existing ACL' >&2
+  exit 1
+}
 for required in \
   'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.1' \
   'v0.2.1' \

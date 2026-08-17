@@ -121,20 +121,16 @@ function Import-DotEnv([string]$Path) {
 }
 
 function Set-RestrictedFileAcl([string]$Path) {
-  $Security = New-Object System.Security.AccessControl.FileSecurity
+  # Preserve the profile's inherited DACL/SACL; replacing the descriptor or
+  # disabling inheritance requires privileges ordinary users do not have.
+  $Security = Get-Acl -Path $Path
   $CurrentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-  $SystemSid = New-Object Security.Principal.SecurityIdentifier("S-1-5-18")
-  $AdminSid = New-Object Security.Principal.SecurityIdentifier("S-1-5-32-544")
-  $Security.SetOwner($CurrentSid)
-  $Security.SetAccessRuleProtection($true, $false)
-  foreach ($Sid in @($CurrentSid, $SystemSid, $AdminSid)) {
-    $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-      $Sid,
-      [System.Security.AccessControl.FileSystemRights]::FullControl,
-      [System.Security.AccessControl.AccessControlType]::Allow
-    )
-    [void]$Security.AddAccessRule($Rule)
-  }
+  $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+    $CurrentSid,
+    [System.Security.AccessControl.FileSystemRights]::FullControl,
+    [System.Security.AccessControl.AccessControlType]::Allow
+  )
+  $Security.SetAccessRule($Rule)
   Set-Acl -Path $Path -AclObject $Security
 }
 

@@ -197,13 +197,17 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   $Bytes = [IO.File]::ReadAllBytes($EnvFile)
   Assert-True (-not ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF)) ".env.local contains a UTF-8 BOM"
   $Acl = Get-Acl $EnvFile
-  Assert-True ($Acl.AreAccessRulesProtected) ".env.local ACL still inherits permissions"
   $AclIdentities = @($Acl.Access | ForEach-Object {
     $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
   })
-  foreach ($ExpectedIdentity in @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, "S-1-5-18", "S-1-5-32-544")) {
-    Assert-True ($AclIdentities -contains $ExpectedIdentity) ".env.local ACL is missing $ExpectedIdentity"
-  }
+  $CurrentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  Assert-True ($AclIdentities -contains $CurrentSid) ".env.local ACL is missing the current user"
+  $CurrentFullControl = @($Acl.Access | Where-Object {
+    $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $CurrentSid -and
+    $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+    (($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq [Security.AccessControl.FileSystemRights]::FullControl)
+  })
+  Assert-True ($CurrentFullControl.Count -gt 0) ".env.local ACL does not grant the current user full control"
 
   $ExpectedSecret = $Secret
   . $script:Installer

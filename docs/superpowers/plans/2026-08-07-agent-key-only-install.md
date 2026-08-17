@@ -391,23 +391,17 @@ Use `Read-Host -AsSecureString` only when input is interactive; otherwise call `
 
 - [ ] **Step 4: Implement round-trip dotenv storage and Windows ACLs**
 
-Make `ConvertTo-DotEnvValue` and `ConvertFrom-DotEnvValue` exact inverses for backslash, quote, carriage return, and tab escapes. Write UTF-8 without BOM to a sibling temporary file and atomically move it into place. Apply protected ACL rules for the current user, `SYSTEM`, and built-in administrators:
+Make `ConvertTo-DotEnvValue` and `ConvertFrom-DotEnvValue` exact inverses for backslash, quote, carriage return, and tab escapes. Write UTF-8 without BOM to a sibling temporary file and atomically move it into place. Preserve the existing Windows ACL and add a full-control rule for the current user without disabling inheritance or requiring elevation:
 
 ```powershell
-$Security = New-Object System.Security.AccessControl.FileSecurity
+$Security = Get-Acl -Path $EnvFile
 $CurrentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-$SystemSid = New-Object Security.Principal.SecurityIdentifier("S-1-5-18")
-$AdminSid = New-Object Security.Principal.SecurityIdentifier("S-1-5-32-544")
-$Security.SetOwner($CurrentSid)
-$Security.SetAccessRuleProtection($true, $false)
-foreach ($Sid in @($CurrentSid, $SystemSid, $AdminSid)) {
-  $Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-    $Sid,
-    [System.Security.AccessControl.FileSystemRights]::FullControl,
-    [System.Security.AccessControl.AccessControlType]::Allow
-  )
-  [void]$Security.AddAccessRule($Rule)
-}
+$Rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+  $CurrentSid,
+  [System.Security.AccessControl.FileSystemRights]::FullControl,
+  [System.Security.AccessControl.AccessControlType]::Allow
+)
+$Security.SetAccessRule($Rule)
 Set-Acl -Path $EnvFile -AclObject $Security
 ```
 

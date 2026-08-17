@@ -207,9 +207,10 @@ temporary file is created beside the destination and renamed only after a
 successful write.
 
 On macOS/Linux, `.env.local` is mode `0600`. On Windows, it is stored under the
-current user's Local AppData directory and its ACL is restricted to the current
-user, SYSTEM, and administrators when the platform permits it. A failure to
-write or secure the file is fatal.
+current user's Local AppData directory, preserves the profile's inherited ACL,
+and explicitly grants the current user full control. The installer must not
+require elevation or `SeSecurityPrivilege`; a failure to write or update the
+current user's file rule is fatal.
 
 The key is not copied into `config.toml`, README output, verification logs,
 process arguments, Git remotes, or Release downloads. `.env.local` remains
