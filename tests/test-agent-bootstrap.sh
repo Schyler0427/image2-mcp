@@ -49,6 +49,9 @@ HTML
 cat >"$fakebin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${BOOTSTRAP_FIXTURE_NETWORK_LOG:-}" ]]; then
+  printf '%s\n' "$*" >>"$BOOTSTRAP_FIXTURE_NETWORK_LOG"
+fi
 url=''
 out=''
 while [[ $# -gt 0 ]]; do
@@ -67,6 +70,9 @@ done
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
     ;;
   https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.2)
+    if [[ "${BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL:-0}" == 1 ]]; then
+      exit 22
+    fi
     cp "$BOOTSTRAP_FIXTURE_RELEASE_PAGE" "$out"
     ;;
   https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.2)
@@ -351,6 +357,53 @@ missing_runner_archive="$(make_source_archive missing-runner version-missing-run
 canonical_duplicate_archive="$(make_canonical_duplicate_archive "$v1_archive")"
 repeated_slash_archive="$(make_repeated_slash_archive "$v1_archive")"
 case_ambiguous_archive="$(make_case_ambiguous_archive "$v1_archive")"
+
+# The public pages are the fast path. A successful page gate must not spend
+# time on the API, and metadata requests must be single-attempt and bounded.
+page_first_home="$tmp/page-first-home"
+page_first_log="$tmp/page-first.log"
+page_first_network="$tmp/page-first-network.log"
+if ! printf '%s\n' 'fixture-key-redacted' |
+  HOME="$page_first_home" PATH="$fakebin:$PATH" \
+  BOOTSTRAP_FIXTURE_NETWORK_LOG="$page_first_network" \
+  BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
+  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
+  BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v1_archive" \
+  "$helper" >"$page_first_log" 2>&1; then
+  fail 'page-first bootstrap failed'
+fi
+assert_contains "$page_first_log" 'Checking public Release...'
+assert_contains "$page_first_log" 'Downloading source package...'
+assert_contains "$page_first_log" 'Preparing installation...'
+assert_contains "$page_first_log" 'Installing platform binary...'
+assert_contains "$page_first_log" 'Verifying local installation...'
+assert_not_contains "$page_first_network" 'api.github.com'
+[[ "$(grep -c '/releases/tag/v0.2.2' "$page_first_network")" -eq 1 ]] || fail 'Release page was retried'
+[[ "$(grep -c '/releases/expanded_assets/v0.2.2' "$page_first_network")" -eq 1 ]] || fail 'assets page was retried'
+grep -Fq -- '--connect-timeout 5 --max-time 15' "$page_first_network" || fail 'metadata timeout is not bounded'
+
+# If the public page is unavailable, the helper makes one short API fallback.
+api_fallback_home="$tmp/api-fallback-home"
+api_fallback_log="$tmp/api-fallback.log"
+api_fallback_network="$tmp/api-fallback-network.log"
+if ! printf '%s\n' 'fixture-key-redacted' |
+  HOME="$api_fallback_home" PATH="$fakebin:$PATH" \
+  BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL=1 \
+  BOOTSTRAP_FIXTURE_NETWORK_LOG="$api_fallback_network" \
+  BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
+  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
+  BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v1_archive" \
+  "$helper" >"$api_fallback_log" 2>&1; then
+  fail 'page failure did not recover through the API'
+fi
+assert_contains "$api_fallback_log" 'Verification: OK'
+[[ "$(grep -c '/releases/tag/v0.2.2' "$api_fallback_network")" -eq 1 ]] || fail 'failed Release page was retried'
+[[ "$(grep -c 'api.github.com' "$api_fallback_network")" -eq 1 ]] || fail 'API fallback was not called exactly once'
+if grep -Fq '/releases/expanded_assets/v0.2.2' "$api_fallback_network"; then
+  fail 'assets page was called after Release page failure'
+fi
 
 # Release validation has a POSIX-tool fallback when Python and jq are absent.
 json_tools="$tmp/json-tools"

@@ -47,12 +47,23 @@ arch_name() {
   esac
 }
 
-download_file() {
+download_metadata() {
   local url="$1" output="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fL -sS --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 30 "$url" -o "$output"
+    curl -fL -sS --connect-timeout 5 --max-time 15 "$url" -o "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget --tries=3 --timeout=15 -O "$output" "$url"
+    wget --tries=1 --timeout=15 -O "$output" "$url"
+  else
+    fail 'curl or wget is required'
+  fi
+}
+
+download_source() {
+  local url="$1" output="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL -sS --connect-timeout 10 --max-time 60 "$url" -o "$output"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --tries=1 --timeout=60 -O "$output" "$url"
   else
     fail 'curl or wget is required'
   fi
@@ -124,12 +135,12 @@ PY
 
 validate_release_page() {
   local page_file="$txn/release.html" assets_file="$txn/release-assets.html" asset
-  download_file "$readonly_release_page" "$page_file" || return 1
+  download_metadata "$readonly_release_page" "$page_file" || return 1
   grep -Fq '<title>Release v0.2.2 · Schyler0427/image2-mcp · GitHub</title>' "$page_file" || return 1
   if grep -Eiq '>Pre-release<' "$page_file"; then
     return 1
   fi
-  download_file "$readonly_release_assets_page" "$assets_file" || return 1
+  download_metadata "$readonly_release_assets_page" "$assets_file" || return 1
   for asset in \
     'image2-mcp_darwin_arm64.tar.gz' \
     'image2-mcp_darwin_amd64.tar.gz' \
@@ -141,12 +152,17 @@ validate_release_page() {
   done
 }
 
+validate_release_api() {
+  local json_file="$txn/release.json"
+  download_metadata "$readonly_release_api" "$json_file" || return 1
+  validate_release_json "$json_file"
+}
+
 validate_release_gate() {
-  local json_file="$1"
-  if validate_release_json "$json_file"; then
+  if validate_release_page; then
     return 0
   fi
-  validate_release_page
+  validate_release_api
 }
 
 validate_existing_target() {
@@ -392,7 +408,7 @@ run_key_only_installer() {
 }
 
 main() {
-  local os arch parent release_json archive extract stage repeat=0
+  local os arch parent archive extract stage repeat=0
   [[ -n "${HOME:-}" ]] || fail 'HOME is required'
   os="$(platform_name)" || fail 'unsupported operating system'
   arch="$(arch_name)" || fail 'unsupported architecture'
@@ -407,14 +423,9 @@ main() {
   trap 'terminate_from_signal 130' INT
   trap 'terminate_from_signal 143' TERM
 
-  release_json="$txn/release.json"
-  if ! download_file "$readonly_release_api" "$release_json"; then
-    # A blocked or rate-limited API must still be able to reach the strict
-    # public Release-page fallback below.
-    printf '{}\n' >"$release_json"
-  fi
-  validate_release_gate "$release_json" ||
-    fail 'public v0.2.2 Release gate failed; GitHub API and public Release page checks did not pass'
+  printf 'Checking public Release...\n'
+  validate_release_gate ||
+    fail 'public v0.2.2 Release gate failed; public pages and GitHub API did not pass'
 
   if [[ -e "$target" || -L "$target" ]]; then
     validate_existing_target
@@ -422,8 +433,10 @@ main() {
   fi
 
   archive="$txn/source.tar.gz"
-  download_file "$readonly_source_url" "$archive"
+  printf 'Downloading source package...\n'
+  download_source "$readonly_source_url" "$archive"
   validate_archive "$archive"
+  printf 'Preparing installation...\n'
   extract="$txn/extract"
   mkdir -p "$extract"
   tar -xzf "$archive" -C "$extract" || fail 'source archive extraction failed'
@@ -439,7 +452,9 @@ main() {
   fi
   new_move_started=1
   mv "$stage" "$target"
+  printf 'Installing platform binary...\n'
   run_key_only_installer
+  printf 'Verifying local installation...\n'
 
   transaction_complete=1
   rm -rf "$txn"
