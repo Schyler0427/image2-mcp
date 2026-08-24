@@ -37,3 +37,6 @@ jobs:
       - name: Test PowerShell bootstrap
         shell: powershell
         run: .\tests\test-agent-bootstrap.ps1
+      - name: Test PowerShell installer
+        shell: powershell
+        run: .\tests\test-install-key-only.ps1

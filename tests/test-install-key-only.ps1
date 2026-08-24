@@ -95,9 +95,12 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls
 
 function Invoke-WebRequest {
-  param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
+  param([string]$Uri, [string]$OutFile, [int]$TimeoutSec, [switch]$UseBasicParsing)
   if (-not $UseBasicParsing) {
     throw "fixture download did not use basic parsing"
+  }
+  if ($TimeoutSec -ne 90) {
+    throw "fixture binary download timeout was $TimeoutSec instead of 90"
   }
   $Protocols = [Net.ServicePointManager]::SecurityProtocol
   if (($Protocols -band [Net.SecurityProtocolType]::Tls12) -eq 0) {

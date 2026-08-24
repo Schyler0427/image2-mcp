@@ -6,8 +6,8 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-assert_contains() { grep -Fq "$2" "$1" || fail "$1 does not contain $2"; }
-assert_not_contains() { ! grep -Fq "$2" "$1" || fail "$1 contains secret text"; }
+assert_contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain $2"; }
+assert_not_contains() { ! grep -Fq -- "$2" "$1" || fail "$1 contains secret text"; }
 assert_line() { grep -Fxq "$2" "$1" || fail "$1 does not preserve $2"; }
 file_fingerprint() {
   if [[ -e "$1" ]]; then
@@ -48,6 +48,9 @@ tar -czf "$fixture" -C "$tmp/payload" image2-mcp
 cat > "$fakebin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${IMAGE2_MCP_TEST_CURL_ARGS:-}" ]]; then
+  printf '%s\n' "$*" >"$IMAGE2_MCP_TEST_CURL_ARGS"
+fi
 out=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -101,8 +104,10 @@ assert_not_contains "$key_help_output" 'OPENAI_IMAGE_API_KEY:'
 
 secret='sk-test-do-not-print'
 output="$tmp/output.log"
+curl_args="$tmp/curl-args.log"
 printf '%s\nignored-second-line\n' "$secret" |
   HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  IMAGE2_MCP_TEST_CURL_ARGS="$curl_args" \
   IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
   "$repo/install.sh" --key-only >"$output" 2>&1
 
@@ -110,6 +115,10 @@ assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
 assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.2.2/$expected_asset"
+assert_contains "$curl_args" '--connect-timeout'
+assert_contains "$curl_args" '10'
+assert_contains "$curl_args" '--max-time'
+assert_contains "$curl_args" '90'
 assert_not_contains "$output" "$secret"
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top'
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_API_KEY='
