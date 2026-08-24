@@ -113,7 +113,7 @@ download_prebuilt() {
   binary="${extract}/image2-mcp"
   echo "==> Downloading prebuilt binary: ${url}"
   if command -v curl >/dev/null 2>&1; then
-    if ! curl -fL "$url" -o "${tmp}/${asset}"; then
+    if ! curl -fL --connect-timeout 10 --max-time 90 "$url" -o "${tmp}/${asset}"; then
       rm -rf "$tmp"
       return 1
     fi

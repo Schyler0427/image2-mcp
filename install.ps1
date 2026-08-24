@@ -243,7 +243,7 @@ function Install-Prebuilt {
   try {
     Write-Host "==> Downloading prebuilt binary: $Url"
     Enable-Image2Tls12
-    Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $ZipPath
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 90 -Uri $Url -OutFile $ZipPath
     Assert-Image2PrebuiltZip $ZipPath
     Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
     $StagedItem = Get-Item -LiteralPath $StagedBinary -Force -ErrorAction SilentlyContinue
