@@ -13,7 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverVersion = "0.2.2"
+const serverVersion = "0.2.3"
 
 type generateParams struct {
 	Prompt     string `json:"prompt" jsonschema:"Image prompt to generate."`

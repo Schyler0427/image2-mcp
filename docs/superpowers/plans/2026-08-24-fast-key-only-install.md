@@ -30,6 +30,7 @@
 **Interfaces:**
 - Consumes: existing helper stdin prompt `OPENAI_IMAGE_API_KEY:`.
 - Produces: Agent contract that asks `请输入 API Key：` before helper launch and then uses one attached process with no elevation or forwarding script.
+- Produces: bounded, single-attempt raw helper downloads before process launch.
 
 - [ ] **Step 1: Write the failing contract assertions**
 
@@ -80,6 +81,17 @@ the target, or Codex config while the helper is still running.
 
 Retain the prohibition on command arguments, variables, environment values,
 temporary files, diagnostics, and output streams.
+
+Bound the repository-owned helper download itself so a raw GitHub TLS stall
+cannot block the flow before the helper starts:
+
+```text
+curl -fL --connect-timeout 10 --max-time 60 URL -o FILE
+wget --tries=1 --timeout=60 -O FILE URL
+Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri URL -OutFile FILE
+```
+
+Each route is attempted once. Do not add an Agent-owned retry loop.
 
 - [ ] **Step 4: Run the contract test and verify GREEN**
 

@@ -10,9 +10,9 @@ diagnostic, or expose any partial or derived form of it.
 - Repository: `https://github.com/Schyler0427/image2-mcp`
 - Repository identity: `Schyler0427/image2-mcp`
 - Base URL: `https://api.schyler.top`
-- Release: public `v0.2.2`
+- Release: public `v0.2.3`
 - Release gate:
-  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.2`
+  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.3`
 - macOS/Linux target: `$HOME/.local/share/image2-mcp`
 - Windows target: `%LOCALAPPDATA%\image2-mcp`
 - Managed marker: `.image2-mcp-managed`
@@ -58,9 +58,11 @@ created temporary file:
 
 `https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/scripts/bootstrap-agent-install.sh`
 
-Use `curl -fL URL -o FILE`, or use `wget -O FILE URL` only when curl is
-unavailable. Start the downloaded `scripts/bootstrap-agent-install.sh` with
-Bash and no arguments, following the attached-process rules above.
+Use `curl -fL --connect-timeout 10 --max-time 60 URL -o FILE`, or use
+`wget --tries=1 --timeout=60 -O FILE URL` only when curl is unavailable. Do
+not retry the helper download. Start the downloaded
+`scripts/bootstrap-agent-install.sh` with Bash and no arguments, following the
+attached-process rules above.
 
 On Windows, before downloading the helper, add TLS 1.2 to the process protocol
 flags without replacing existing flags:
@@ -71,7 +73,8 @@ flags without replacing existing flags:
 ```
 
 Then download this exact repository-owned helper to a newly created temporary
-file with `Invoke-WebRequest -UseBasicParsing -Uri URL -OutFile FILE`:
+file with `Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri URL -OutFile FILE`.
+Do not retry the helper download:
 
 `https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/scripts/bootstrap-agent-install.ps1`
 
@@ -91,7 +94,7 @@ Windows. Do not invoke either installer separately.
 The repository-owned helper is the only implementation of the bootstrap
 transaction. It owns all of these requirements:
 
-- enforce the fixed public `v0.2.2` gate and all six exact assets;
+- enforce the fixed public `v0.2.3` gate and all six exact assets;
 - enforce the fixed platform and architecture, fixed target, exact Git origin
   or byte-exact `.image2-mcp-managed` identity, and validated source archive;
 - reject traversal, links, reparse points, duplicates, case ambiguity, and

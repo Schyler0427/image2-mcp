@@ -114,11 +114,45 @@ printf '%s\nignored-second-line\n' "$secret" |
 assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
-assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.2.2/$expected_asset"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.2.3/$expected_asset"
 assert_contains "$curl_args" '--connect-timeout'
 assert_contains "$curl_args" '10'
 assert_contains "$curl_args" '--max-time'
 assert_contains "$curl_args" '90'
+
+wget_repo="$tmp/wget-repo"
+wget_args="$tmp/wget-args.log"
+mkdir -p "$wget_repo"
+(
+  source "$root/scripts/setup.sh"
+  repo_dir="$wget_repo"
+  key_only=1
+  IMAGE2_MCP_REPO='Schyler0427/image2-mcp'
+  command() {
+    if [[ "$1" == '-v' && "$2" == 'curl' ]]; then
+      return 1
+    fi
+    if [[ "$1" == '-v' && "$2" == 'wget' ]]; then
+      return 0
+    fi
+    builtin command "$@"
+  }
+  wget() {
+    printf '%s\n' "$*" >"$wget_args"
+    local out=''
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -O) out="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    cp "$fixture" "$out"
+  }
+  download_prebuilt
+)
+assert_contains "$wget_args" '--tries=1'
+assert_contains "$wget_args" '--timeout=90'
+
 assert_not_contains "$output" "$secret"
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top'
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_API_KEY='

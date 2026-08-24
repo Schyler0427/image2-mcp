@@ -35,6 +35,15 @@ for required in \
     exit 1
   }
 done
+for required in \
+  'curl -fL --connect-timeout 10 --max-time 60 URL -o FILE' \
+  'wget --tries=1 --timeout=60 -O FILE URL' \
+  'Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri URL -OutFile FILE'; do
+  grep -Fq "$required" "$doc" || {
+    echo "FAIL: missing bounded helper download contract: $required" >&2
+    exit 1
+  }
+done
 if grep -Fq 'Start the selected helper and wait until it requests stdin. Then ask exactly' "$doc"; then
   echo 'FAIL: Agent guide still starts a long-running helper before asking for the key' >&2
   exit 1
@@ -52,8 +61,8 @@ grep -Fq '$Security = Get-Acl -Path $Path' "$windows_installer" || {
   exit 1
 }
 for required in \
-  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.2' \
-  'v0.2.2' \
+  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.3' \
+  'v0.2.3' \
   'image2-mcp_darwin_arm64.tar.gz' \
   'image2-mcp_darwin_amd64.tar.gz' \
   'image2-mcp_linux_arm64.tar.gz' \
@@ -64,7 +73,6 @@ for required in \
   'prerelease' \
   'git clone --depth 1 https://github.com/Schyler0427/image2-mcp.git' \
   'curl -fL' \
-  'wget -O' \
   'tar -xzf' \
   'Invoke-WebRequest' \
   'A blank or whitespace-only key fails once with no re-prompt.' \
@@ -77,16 +85,16 @@ for test_path in 'tests/test-agent-bootstrap.sh' 'tests/test-agent-bootstrap.ps1
     exit 1
   }
 done
-grep -Fq -- '- "v0.2.2"' "$workflow" || {
-  echo 'FAIL: release workflow is not pinned to v0.2.2' >&2
+grep -Fq -- '- "v0.2.3"' "$workflow" || {
+  echo 'FAIL: release workflow is not pinned to v0.2.3' >&2
   exit 1
 }
-grep -Fq 'git tag v0.2.2' "$root/README.md" || {
-  echo 'FAIL: README release instructions are not pinned to v0.2.2' >&2
+grep -Fq 'git tag v0.2.3' "$root/README.md" || {
+  echo 'FAIL: README release instructions are not pinned to v0.2.3' >&2
   exit 1
 }
-grep -Fq '仓库包含 GitHub Actions Release workflow。推送 `v0.2.2` tag 后会自动构建：' "$root/README.md" || {
-  echo 'FAIL: README release trigger is not pinned to v0.2.2' >&2
+grep -Fq '仓库包含 GitHub Actions Release workflow。推送 `v0.2.3` tag 后会自动构建：' "$root/README.md" || {
+  echo 'FAIL: README release trigger is not pinned to v0.2.3' >&2
   exit 1
 }
 if grep -Fq '`v*` tag' "$root/README.md"; then

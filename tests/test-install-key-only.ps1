@@ -169,7 +169,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
   Assert-True (-not $Result.Output.Contains($Secret)) "API Key leaked to output"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"
-  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.2.2/")) "Release tag is not fixed"
+  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.2.3/")) "Release tag is not fixed"
   Assert-True ($Result.Output.Contains("Base URL: https://api.schyler.top")) "reported base URL is not fixed"
   Assert-True (-not $Result.Output.Contains("legacy-key-must-not-win")) "legacy API Key leaked to output"
 

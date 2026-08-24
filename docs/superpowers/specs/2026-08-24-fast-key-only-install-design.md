@@ -2,7 +2,7 @@
 
 Date: 2026-08-24
 
-Status: approved design; implementation pending
+Status: approved design; implemented
 
 ## Goal
 
@@ -55,6 +55,12 @@ this sequence:
    environment variable, temporary file, diagnostic, or output stream.
 5. Wait for process exit. Success still requires exit status zero and the exact
    line `Verification: OK`.
+
+The repository-owned raw helper download is also a single bounded attempt
+before process launch: curl uses a 10-second connection timeout and 60-second
+total timeout, wget uses one attempt with a 60-second timeout, and Windows
+PowerShell uses `TimeoutSec 60`. A helper download failure exits clearly; the
+Agent does not improvise a retry loop, alternate repository, or proxy.
 
 The helper continues to validate public Release state and stage the source
 before its installer reads stdin. Supplying the key to the Agent first changes
@@ -145,6 +151,8 @@ behaviors:
 3. Failure fixtures count metadata calls and prove the long three-attempt loops
    are gone.
 4. Mocks require explicit timeout parameters on source and binary downloads.
+   The Agent contract also requires bounded, single-attempt raw helper download
+   commands for curl, wget, and Windows PowerShell.
 5. Existing API-failure fallback, archive-hardening, rollback, repeat install,
    secret-redaction, ACL, Codex configuration, and local verification tests
    continue to pass.

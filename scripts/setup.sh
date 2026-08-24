@@ -103,7 +103,7 @@ download_prebuilt() {
   }
   asset="image2-mcp_${os}_${arch}.tar.gz"
   if [[ "$key_only" -eq 1 ]]; then
-    url="https://github.com/${repo}/releases/download/v0.2.2/${asset}"
+    url="https://github.com/${repo}/releases/download/v0.2.3/${asset}"
   else
     url="https://github.com/${repo}/releases/latest/download/${asset}"
   fi
@@ -118,7 +118,7 @@ download_prebuilt() {
       return 1
     fi
   elif command -v wget >/dev/null 2>&1; then
-    if ! wget -O "${tmp}/${asset}" "$url"; then
+    if ! wget --tries=1 --timeout=90 -O "${tmp}/${asset}" "$url"; then
       rm -rf "$tmp"
       return 1
     fi
