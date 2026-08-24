@@ -113,8 +113,8 @@ Extend fake `curl` to append every URL and option vector to
 assert_contains "$page_first_log" 'Checking public Release...'
 assert_contains "$page_first_log" 'Downloading source package...'
 ! grep -Fq 'api.github.com' "$network_log" || fail 'page success still called the API'
-[[ "$(grep -c '/releases/tag/v0.2.3' "$network_log")" -eq 1 ]] || fail 'Release page was retried'
-[[ "$(grep -c '/releases/expanded_assets/v0.2.3' "$network_log")" -eq 1 ]] || fail 'assets page was retried'
+[[ "$(grep -c '/releases/tag/v0.2.2' "$network_log")" -eq 1 ]] || fail 'Release page was retried'
+[[ "$(grep -c '/releases/expanded_assets/v0.2.2' "$network_log")" -eq 1 ]] || fail 'assets page was retried'
 grep -Fq -- '--connect-timeout 5 --max-time 15' "$network_log" || fail 'metadata timeout is not bounded'
 ```
 
@@ -168,7 +168,7 @@ Use exact non-secret output and source downloader:
 
 ```bash
 printf 'Checking public Release...\n'
-validate_release_gate || fail 'public v0.2.3 Release gate failed; public pages and GitHub API did not pass'
+validate_release_gate || fail 'public v0.2.2 Release gate failed; public pages and GitHub API did not pass'
 printf 'Downloading source package...\n'
 download_source "$readonly_source_url" "$archive"
 printf 'Preparing installation...\n'
@@ -209,8 +209,8 @@ In the PowerShell harness, record each mocked call as
 After `Invoke-AgentBootstrap`, require:
 
 ```powershell
-Assert-True ($NetworkCalls[0] -eq "WEB|15|https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.3") "Release page was not first"
-Assert-True ($NetworkCalls[1] -eq "WEB|15|https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.3") "assets page was not second"
+Assert-True ($NetworkCalls[0] -eq "WEB|15|https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.2") "Release page was not first"
+Assert-True ($NetworkCalls[1] -eq "WEB|15|https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.2") "assets page was not second"
 Assert-True (-not ($NetworkCalls -match '^REST\|')) "API was called after page success"
 ```
 
