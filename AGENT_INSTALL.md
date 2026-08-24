@@ -30,16 +30,37 @@ contain all six assets before the helper changes the target or reads the key:
 Do not substitute another repository, ref, Release, base URL, target, installer
 mode, or helper. The customer does not need Git or Go.
 
+## Secret input and single-turn execution
+
+Detect the platform. Ask exactly `请输入 API Key：` before starting the platform helper.
+Wait for the customer's one-line response and keep it only as the pending stdin
+secret. A blank or whitespace-only key fails once with no re-prompt.
+
+After the customer replies, obtain the platform helper as described below and
+start it once as the current user with its real standard input, output, and
+error streams attached. Do not request elevation or start an administrator process.
+Do not create a forwarding script or a second process to relay stdin.
+Keep this download, helper launch, key forwarding, installation, and verification in one Agent turn.
+
+When the attached child prints `OPENAI_IMAGE_API_KEY:`, send the pending secret
+as exactly one line through that same process's standard input facility. Do not
+send a second line. Do not inspect `.env.local`, the target, or Codex config while the helper is still running.
+Do not restart the helper because an expected file is not present during the
+transaction. Only the helper's exit status and final output determine success.
+
+The key must never appear in the command, a command argument, a shell variable,
+an environment variable, a temporary file, a diagnostic, or an output stream.
+
 ## Obtain the platform helper
 
-Detect the platform. On macOS or Linux, download this exact repository-owned
-helper to a newly created temporary file:
+On macOS or Linux, download this exact repository-owned helper to a newly
+created temporary file:
 
 `https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/scripts/bootstrap-agent-install.sh`
 
 Use `curl -fL URL -o FILE`, or use `wget -O FILE URL` only when curl is
-unavailable. Then start the downloaded `scripts/bootstrap-agent-install.sh`
-with Bash. Do not add arguments.
+unavailable. Start the downloaded `scripts/bootstrap-agent-install.sh` with
+Bash and no arguments, following the attached-process rules above.
 
 On Windows, before downloading the helper, add TLS 1.2 to the process protocol
 flags without replacing existing flags:
@@ -55,19 +76,11 @@ file with `Invoke-WebRequest -UseBasicParsing -Uri URL -OutFile FILE`:
 `https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/scripts/bootstrap-agent-install.ps1`
 
 Start the downloaded `scripts/bootstrap-agent-install.ps1` with Windows
-PowerShell 5.1 or later. Do not add arguments.
+PowerShell 5.1 or later and no arguments, following the attached-process rules
+above.
 
 Delete only the downloaded temporary helper after it exits. Never delete a
 retained transaction or previous-installation path reported by the helper.
-
-## Secret input
-
-Start the selected helper and wait until it requests stdin. Then ask exactly
-`请输入 API Key：` and send the response as one line through that process's
-standard input facility. The key must never appear in the command or an output
-stream. Do not send a second line.
-
-A blank or whitespace-only key fails once with no re-prompt.
 
 The helper passes that same stdin stream to the platform key-only installer:
 `./install.sh --key-only` on macOS/Linux or `.\install.ps1 -KeyOnly` on

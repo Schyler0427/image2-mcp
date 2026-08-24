@@ -24,6 +24,21 @@ for required in \
   'not active in the refreshed target'; do
   grep -Fq "$required" "$doc" || { echo "FAIL: missing helper contract: $required" >&2; exit 1; }
 done
+for required in \
+  'Ask exactly `请输入 API Key：` before starting the platform helper.' \
+  'Do not request elevation or start an administrator process.' \
+  'Do not create a forwarding script or a second process to relay stdin.' \
+  'Keep this download, helper launch, key forwarding, installation, and verification in one Agent turn.' \
+  'Do not inspect `.env.local`, the target, or Codex config while the helper is still running.'; do
+  grep -Fq "$required" "$doc" || {
+    echo "FAIL: missing single-turn Agent contract: $required" >&2
+    exit 1
+  }
+done
+if grep -Fq 'Start the selected helper and wait until it requests stdin. Then ask exactly' "$doc"; then
+  echo 'FAIL: Agent guide still starts a long-running helper before asking for the key' >&2
+  exit 1
+fi
 if grep -Fq '.image2-mcp-source-manifest' "$doc"; then
   echo 'FAIL: Agent guide still delegates a prose manifest algorithm' >&2
   exit 1
