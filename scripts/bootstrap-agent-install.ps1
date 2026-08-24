@@ -88,19 +88,8 @@ function Assert-AgentBootstrapReleasePage(
   }
 }
 
-function Invoke-AgentBootstrapWebPage([string]$Uri) {
-  $LastError = $null
-  for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
-    try {
-      return Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri $Uri
-    } catch {
-      $LastError = $_.Exception
-      if ($Attempt -lt 3) {
-        Start-Sleep -Seconds 2
-      }
-    }
-  }
-  throw $LastError
+function Invoke-AgentBootstrapMetadata([string]$Uri) {
+  return Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 -Uri $Uri
 }
 
 function Assert-AgentBootstrapExistingTarget(
@@ -572,31 +561,17 @@ function Invoke-AgentBootstrap {
 
   try {
     Enable-Image2Tls12
+    Write-Host "Checking public Release..."
     try {
-      $Release = $null
-      $LastApiError = $null
-      for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
-        try {
-          $Release = Invoke-RestMethod -UseBasicParsing -TimeoutSec 30 -Uri $ReleaseApi
-          break
-        } catch {
-          $LastApiError = $_.Exception
-          if ($Attempt -lt 3) {
-            Start-Sleep -Seconds 2
-          }
-        }
-      }
-      if ($null -eq $Release) {
-        throw $LastApiError
-      }
-      Assert-AgentBootstrapRelease $Release $RequiredAssets
+      $ReleasePage = Invoke-AgentBootstrapMetadata $ReleasePageUrl
+      $ReleaseAssetsPage = Invoke-AgentBootstrapMetadata $ReleaseAssetsPageUrl
+      Assert-AgentBootstrapReleasePage $ReleasePage.Content $ReleaseAssetsPage.Content $RequiredAssets
     } catch {
       try {
-        $ReleasePage = Invoke-AgentBootstrapWebPage $ReleasePageUrl
-        $ReleaseAssetsPage = Invoke-AgentBootstrapWebPage $ReleaseAssetsPageUrl
-        Assert-AgentBootstrapReleasePage $ReleasePage.Content $ReleaseAssetsPage.Content $RequiredAssets
+        $Release = Invoke-RestMethod -UseBasicParsing -TimeoutSec 15 -Uri $ReleaseApi
+        Assert-AgentBootstrapRelease $Release $RequiredAssets
       } catch {
-        throw "public v0.2.2 Release gate failed; GitHub API and public Release page checks did not pass"
+        throw "public v0.2.2 Release gate failed; public pages and GitHub API did not pass"
       }
     }
 
@@ -607,8 +582,10 @@ function Invoke-AgentBootstrap {
     }
 
     $ArchivePath = Join-Path $TransactionPath "source.zip"
+    Write-Host "Downloading source package..."
     Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri $SourceUrl -OutFile $ArchivePath
     Assert-AgentBootstrapZip $ArchivePath $SourceRoot $RequiredArchivePaths
+    Write-Host "Preparing installation..."
 
     $ExtractPath = Join-Path $TransactionPath "extract"
     [IO.Directory]::CreateDirectory($ExtractPath) | Out-Null
@@ -630,7 +607,9 @@ function Invoke-AgentBootstrap {
     $NewMoveIntent = $true
     [IO.Directory]::Move($StagePath, $Target)
 
+    Write-Host "Installing platform binary..."
     Invoke-AgentBootstrapInstaller (Join-Path $Target "install.ps1") $RepositorySlug
+    Write-Host "Verifying local installation..."
     Write-Host "Verification: OK"
     Write-Host "Install directory: $Target"
     Write-Host "Binary: $(Join-Path $Target 'dist\image2-mcp.exe')"
