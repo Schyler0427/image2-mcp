@@ -31,11 +31,15 @@ Assert-True (Test-Path $Helper) "PowerShell Agent bootstrap helper is missing"
 $TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("image2-bootstrap-test-" + [Guid]::NewGuid().ToString("N"))
 $Harness = Join-Path $TempRoot "invoke-bootstrap.ps1"
 $ReleaseJson = Join-Path $TempRoot "release.json"
+$ReleasePage = Join-Path $TempRoot "release.html"
+$ReleaseAssetsPage = Join-Path $TempRoot "release-assets.html"
 $SecretText = "fixture-key-redacted"
 $SavedEnvironment = @{}
 foreach ($Name in @(
   "HOME", "USERPROFILE", "LOCALAPPDATA", "BOOTSTRAP_FIXTURE_HELPER",
   "BOOTSTRAP_FIXTURE_RELEASE_JSON", "BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE",
+  "BOOTSTRAP_FIXTURE_RELEASE_PAGE", "BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE",
+  "BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL", "BOOTSTRAP_FIXTURE_NETWORK_LOG",
   "BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP", "BOOTSTRAP_FIXTURE_BLOCK_GIT",
   "BOOTSTRAP_FIXTURE_GIT_TOPLEVEL", "BOOTSTRAP_FIXTURE_REAL_GIT",
   "BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER", "IMAGE2_MCP_REPO", "PATH"
@@ -190,7 +194,9 @@ function Invoke-TestBootstrap(
   [string]$GitWrapperPath,
   [switch]$BlockGit,
   [string]$GitTopLevel,
-  [string]$SourceDownloadMarker
+  [string]$SourceDownloadMarker,
+  [switch]$FailReleasePage,
+  [string]$NetworkLog
 ) {
   Set-TestHome $HomePath
   if ($WithoutHomeEnvironment) {
@@ -210,6 +216,12 @@ function Invoke-TestBootstrap(
   )
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_GIT_TOPLEVEL", $GitTopLevel, "Process")
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER", $SourceDownloadMarker, "Process")
+  [Environment]::SetEnvironmentVariable(
+    "BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL",
+    $(if ($FailReleasePage) { "1" } else { $null }),
+    "Process"
+  )
+  [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_NETWORK_LOG", $NetworkLog, "Process")
   $OriginalPath = [Environment]::GetEnvironmentVariable("PATH", "Process")
   if ($GitWrapperPath) {
     [Environment]::SetEnvironmentVariable("PATH", ($GitWrapperPath + ";" + $OriginalPath), "Process")
@@ -294,11 +306,29 @@ try {
   ]
 }
 '@, (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText(
+    $ReleasePage,
+    ('<title>Release v0.2.2 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'),
+    (New-Object Text.UTF8Encoding($false))
+  )
+  [IO.File]::WriteAllText($ReleaseAssetsPage, (@(
+    "image2-mcp_darwin_arm64.tar.gz",
+    "image2-mcp_darwin_amd64.tar.gz",
+    "image2-mcp_linux_arm64.tar.gz",
+    "image2-mcp_linux_amd64.tar.gz",
+    "image2-mcp_windows_arm64.zip",
+    "image2-mcp_windows_amd64.zip"
+  ) | ForEach-Object {
+    "/Schyler0427/image2-mcp/releases/download/v0.2.2/$_"
+  }) -join "`n", (New-Object Text.UTF8Encoding($false)))
   [IO.File]::WriteAllText($Harness, @'
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls
 function Invoke-RestMethod {
   param([string]$Uri, [int]$TimeoutSec, [switch]$UseBasicParsing)
+  if (-not [string]::IsNullOrEmpty($env:BOOTSTRAP_FIXTURE_NETWORK_LOG)) {
+    [IO.File]::AppendAllText($env:BOOTSTRAP_FIXTURE_NETWORK_LOG, "REST|$TimeoutSec|$Uri`n", (New-Object Text.UTF8Encoding($false)))
+  }
   if (-not $UseBasicParsing) {
     throw "fixture Release gate did not use basic parsing"
   }
@@ -313,6 +343,9 @@ function Invoke-RestMethod {
 }
 function Invoke-WebRequest {
   param([string]$Uri, [string]$OutFile, [int]$TimeoutSec, [switch]$UseBasicParsing)
+  if (-not [string]::IsNullOrEmpty($env:BOOTSTRAP_FIXTURE_NETWORK_LOG)) {
+    [IO.File]::AppendAllText($env:BOOTSTRAP_FIXTURE_NETWORK_LOG, "WEB|$TimeoutSec|$Uri`n", (New-Object Text.UTF8Encoding($false)))
+  }
   if (-not $UseBasicParsing) {
     throw "fixture source download did not use basic parsing"
   }
@@ -322,6 +355,18 @@ function Invoke-WebRequest {
   }
   if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
     throw "fixture source download did not preserve TLS"
+  }
+  if ($Uri -eq "https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.2") {
+    if ($env:BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL -eq "1") {
+      throw "fixture Release page failure"
+    }
+    return [PSCustomObject]@{ Content = [IO.File]::ReadAllText($env:BOOTSTRAP_FIXTURE_RELEASE_PAGE) }
+  }
+  if ($Uri -eq "https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.2") {
+    return [PSCustomObject]@{ Content = [IO.File]::ReadAllText($env:BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE) }
+  }
+  if ($Uri -ne "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.2.2.zip") {
+    throw "unexpected fixture URL: $Uri"
   }
   if (-not [string]::IsNullOrEmpty($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER)) {
     [IO.File]::WriteAllText($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER, "downloaded", (New-Object Text.UTF8Encoding($false)))
@@ -366,6 +411,8 @@ try {
 '@, (New-Object Text.UTF8Encoding($false)))
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_HELPER", $Helper, "Process")
   [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_RELEASE_JSON", $ReleaseJson, "Process")
+  [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_RELEASE_PAGE", $ReleasePage, "Process")
+  [Environment]::SetEnvironmentVariable("BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE", $ReleaseAssetsPage, "Process")
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", "fixture-parent-repository", "Process")
   $HelperText = [IO.File]::ReadAllText($Helper)
   Assert-True (-not $HelperText.Contains("BOOTSTRAP_FIXTURE_")) "production helper contains test fixture override"
@@ -399,15 +446,34 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
 
   # First install and clean repeat.
   $CleanHome = Join-Path $TempRoot "clean-home"
+  $PageFirstNetwork = Join-Path $TempRoot "page-first-network.log"
   New-Item -ItemType Directory -Force -Path (Join-Path $CleanHome ".codex") | Out-Null
   [IO.File]::WriteAllText((Join-Path $CleanHome ".codex\config.toml"), "original config`n", (New-Object Text.UTF8Encoding($false)))
-  $First = Invoke-TestBootstrap $CleanHome $V1
+  $First = Invoke-TestBootstrap $CleanHome $V1 -NetworkLog $PageFirstNetwork
   Assert-True ($First.ExitCode -eq 0) "first install failed"
+  Assert-True ($First.Output.Contains("Checking public Release...")) "Release progress marker missing"
+  Assert-True ($First.Output.Contains("Downloading source package...")) "source progress marker missing"
+  Assert-True ($First.Output.Contains("Preparing installation...")) "prepare progress marker missing"
+  Assert-True ($First.Output.Contains("Installing platform binary...")) "install progress marker missing"
+  Assert-True ($First.Output.Contains("Verifying local installation...")) "verification progress marker missing"
+  $PageCalls = @([IO.File]::ReadAllLines($PageFirstNetwork))
+  Assert-True ($PageCalls[0] -eq "WEB|15|https://github.com/Schyler0427/image2-mcp/releases/tag/v0.2.2") "Release page was not first"
+  Assert-True ($PageCalls[1] -eq "WEB|15|https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.2.2") "assets page was not second"
+  Assert-True (-not ($PageCalls -match '^REST\|')) "API was called after page success"
   Assert-True ($First.Output.Contains("OPENAI_IMAGE_API_KEY:")) "bootstrap did not expose the key prompt"
   Assert-True (-not $First.Output.Contains($SecretText)) "first install leaked key"
   $CleanTarget = Join-Path $CleanHome "AppData\Local\image2-mcp"
   Assert-Contains (Join-Path $CleanTarget "version.txt") "version-one" "first install source is wrong"
   Assert-Contains (Join-Path $CleanTarget ".image2-mcp-managed") "Schyler0427/image2-mcp" "managed marker is wrong"
+
+  $ApiFallbackHome = Join-Path $TempRoot "api-fallback-home"
+  $ApiFallbackNetwork = Join-Path $TempRoot "api-fallback-network.log"
+  $ApiFallback = Invoke-TestBootstrap $ApiFallbackHome $V1 -FailReleasePage -NetworkLog $ApiFallbackNetwork
+  Assert-True ($ApiFallback.ExitCode -eq 0) "Release page failure did not recover through the API"
+  $FallbackCalls = @([IO.File]::ReadAllLines($ApiFallbackNetwork))
+  Assert-True ((@($FallbackCalls | Where-Object { $_ -like 'WEB|*|*/releases/tag/v0.2.2' })).Count -eq 1) "failed Release page was retried"
+  Assert-True ((@($FallbackCalls | Where-Object { $_ -like 'REST|15|*api.github.com*' })).Count -eq 1) "API fallback was not called exactly once"
+  Assert-True ((@($FallbackCalls | Where-Object { $_ -like '*expanded_assets*' })).Count -eq 0) "assets page was called after Release page failure"
 
   $CleanRepeat = Invoke-TestBootstrap $CleanHome $V2
   Assert-True ($CleanRepeat.ExitCode -eq 0) "clean repeat failed"
