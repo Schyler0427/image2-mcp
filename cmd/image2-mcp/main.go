@@ -13,7 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverVersion = "0.2.3"
+const serverVersion = "0.3.0"
 
 type generateParams struct {
 	Prompt     string `json:"prompt" jsonschema:"Image prompt to generate."`
@@ -53,12 +53,12 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		Name:    "image2-mcp",
 		Version: serverVersion,
 	}, &mcp.ServerOptions{
-		Instructions: "Generate and edit images with gpt-image-2 via OPENAI_IMAGE_BASE_URL and OPENAI_IMAGE_API_KEY. The generate_image2 tool generates and the edit_image2 tool edits PNG files, saving to output_dir when provided, otherwise output/imagegen, and returns the local file path.",
+		Instructions: "Generate and edit images with gpt-image-2.5-sunburst by default via OPENAI_IMAGE_BASE_URL and OPENAI_IMAGE_API_KEY. Set OPENAI_IMAGE_MODEL to override the model, for example gpt-image-2.5-flare. The generate_image2 tool generates and the edit_image2 tool edits PNG files, saving to output_dir when provided, otherwise output/imagegen, and returns the local file path.",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "generate_image2",
-		Description: "Generate one PNG image using gpt-image-2 and save it locally.",
+		Description: "Generate one PNG image using gpt-image-2.5-sunburst by default (or OPENAI_IMAGE_MODEL) and save it locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params generateParams) (*mcp.CallToolResult, image2.GenerateResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
@@ -86,7 +86,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_image2",
-		Description: "Edit one or more local images using gpt-image-2 with an optional mask and save the result locally.",
+		Description: "Edit one or more local images using gpt-image-2.5-sunburst by default (or OPENAI_IMAGE_MODEL), with an optional mask, and save the result locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params editParams) (*mcp.CallToolResult, image2.EditResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {

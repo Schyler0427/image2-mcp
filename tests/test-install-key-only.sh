@@ -114,7 +114,7 @@ printf '%s\nignored-second-line\n' "$secret" |
 assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
-assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.2.3/$expected_asset"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.0/$expected_asset"
 assert_contains "$curl_args" '--connect-timeout'
 assert_contains "$curl_args" '10'
 assert_contains "$curl_args" '--max-time'

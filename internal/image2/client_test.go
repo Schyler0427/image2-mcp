@@ -54,6 +54,101 @@ func TestNewRequiresAPIKey(t *testing.T) {
 	}
 }
 
+func TestGenerateUsesImage25DefaultModel(t *testing.T) {
+	t.Setenv("OPENAI_IMAGE_MODEL", "   ")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if got := req["model"]; got != "gpt-image-2.5-sunburst" {
+			t.Fatalf("model = %v, want gpt-image-2.5-sunburst", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Generate(context.Background(), GenerateRequest{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Model != "gpt-image-2.5-sunburst" {
+		t.Fatalf("result model = %q, want gpt-image-2.5-sunburst", result.Model)
+	}
+}
+
+func TestNewFromEnvUsesConfiguredImageModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if got := req["model"]; got != "gpt-image-2.5-flare" {
+			t.Fatalf("model = %v, want gpt-image-2.5-flare", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}},
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENAI_IMAGE_API_KEY", "test-key")
+	t.Setenv("OPENAI_IMAGE_BASE_URL", server.URL)
+	t.Setenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
+	client, err := NewFromEnv(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Generate(context.Background(), GenerateRequest{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Model != "gpt-image-2.5-flare" {
+		t.Fatalf("result model = %q, want gpt-image-2.5-flare", result.Model)
+	}
+}
+
+func TestEditUsesConfiguredImageModel(t *testing.T) {
+	imagePath := filepath.Join(t.TempDir(), "input.png")
+	if err := os.WriteFile(imagePath, []byte{0x89, 'P', 'N', 'G'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.FormValue("model"); got != "gpt-image-2.5-flare" {
+			t.Fatalf("model = %q, want gpt-image-2.5-flare", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}},
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Edit(context.Background(), EditRequest{
+		Prompt:     "edit",
+		ImagePaths: []string{imagePath},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Model != "gpt-image-2.5-flare" {
+		t.Fatalf("result model = %q, want gpt-image-2.5-flare", result.Model)
+	}
+}
+
 func TestGenerateDecodesB64JSONAndWritesPNG(t *testing.T) {
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -203,17 +298,19 @@ func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
 			fields[part.FormName()] = string(data)
 		}
 		wantFields := map[string]string{
-			"model":           DefaultModel,
-			"prompt":          "edit hello",
-			"size":            DefaultSize,
-			"quality":         "high",
-			"n":               "1",
-			"response_format": "b64_json",
+			"model":   DefaultModel,
+			"prompt":  "edit hello",
+			"size":    DefaultSize,
+			"quality": "high",
+			"n":       "1",
 		}
 		for name, want := range wantFields {
 			if got := fields[name]; got != want {
 				t.Fatalf("field %q = %q, want %q", name, got, want)
 			}
+		}
+		if got := fields["response_format"]; got != "" {
+			t.Fatalf("response_format = %q, want field omitted for GPT Image 2.5", got)
 		}
 		if len(files) != 3 {
 			t.Fatalf("file parts = %d, want 3", len(files))

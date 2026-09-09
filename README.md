@@ -2,8 +2,8 @@
 
 Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个工具：
 
-- `generate_image2`：调用 OpenAI-compatible 的 `gpt-image-2` 生图接口
-- `edit_image2`：调用 `gpt-image-2` 的图生图编辑接口（支持多图输入和可选蒙版）
+- `generate_image2`：调用 OpenAI-compatible 的 `gpt-image-2.5-sunburst` 生图接口
+- `edit_image2`：调用 `gpt-image-2.5-sunburst` 的图生图编辑接口（支持多图输入和可选蒙版）
 
 两个工具都会把接口返回的 `b64_json` 解码成 PNG 文件并保存到本地。
 
@@ -14,6 +14,10 @@ Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个
 ```
 
 客户只需输入 API Key。
+
+默认模型是 `gpt-image-2.5-sunburst`。如网关提供更快的
+`gpt-image-2.5-flare`，可在本地 `.env.local` 中额外设置
+`OPENAI_IMAGE_MODEL="gpt-image-2.5-flare"`；客户安装时仍只需输入 API Key。
 
 ## 维护者和高级安装
 
@@ -132,6 +136,9 @@ OPENAI_IMAGE_BASE_URL="https://api.schyler.top"
 
 API Key 会保存在本地 `.env.local`，不在文档示例中展示。
 
+可选的 `OPENAI_IMAGE_MODEL` 也从 `.env.local` 读取；未设置时使用
+`gpt-image-2.5-sunburst`。
+
 Codex 配置里不会直接保存 key。启动 MCP 时，runner 脚本会读取本地
 `.env.local`。
 
@@ -204,7 +211,7 @@ go build -o .\dist\image2-mcp.exe .\cmd\image2-mcp
 
 ### 发布 GitHub Release
 
-仓库包含 GitHub Actions Release workflow。推送 `v0.2.3` tag 后会自动构建：
+仓库包含 GitHub Actions Release workflow。推送 `v0.3.0` tag 后会自动构建：
 
 ```text
 darwin/arm64
@@ -218,8 +225,8 @@ windows/amd64
 发布方式：
 
 ```bash
-git tag v0.2.3
-git push origin v0.2.3
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 Release 产物命名：
@@ -338,7 +345,7 @@ C:\Users\you\Desktop\images
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk.png",
-  "model": "gpt-image-2",
+  "model": "gpt-image-2.5-sunburst",
   "size": "1024x1024"
 }
 ```
@@ -409,7 +416,7 @@ output_name  可选，图片文件名；不传则自动生成 image2-时间戳.p
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk-with-cat.png",
-  "model": "gpt-image-2",
+  "model": "gpt-image-2.5-sunburst",
   "size": "1024x1024"
 }
 ```

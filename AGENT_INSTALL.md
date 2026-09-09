@@ -10,9 +10,9 @@ diagnostic, or expose any partial or derived form of it.
 - Repository: `https://github.com/Schyler0427/image2-mcp`
 - Repository identity: `Schyler0427/image2-mcp`
 - Base URL: `https://api.schyler.top`
-- Release: public `v0.2.3`
+- Release: public `v0.3.0`
 - Release gate:
-  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.3`
+  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.0`
 - macOS/Linux target: `$HOME/.local/share/image2-mcp`
 - Windows target: `%LOCALAPPDATA%\image2-mcp`
 - Managed marker: `.image2-mcp-managed`
@@ -94,7 +94,7 @@ Windows. Do not invoke either installer separately.
 The repository-owned helper is the only implementation of the bootstrap
 transaction. It owns all of these requirements:
 
-- enforce the fixed public `v0.2.3` gate and all six exact assets;
+- enforce the fixed public `v0.3.0` gate and all six exact assets;
 - enforce the fixed platform and architecture, fixed target, exact Git origin
   or byte-exact `.image2-mcp-managed` identity, and validated source archive;
 - reject traversal, links, reparse points, duplicates, case ambiguity, and

@@ -61,8 +61,8 @@ grep -Fq '$Security = Get-Acl -Path $Path' "$windows_installer" || {
   exit 1
 }
 for required in \
-  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.2.3' \
-  'v0.2.3' \
+  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.0' \
+  'v0.3.0' \
   'image2-mcp_darwin_arm64.tar.gz' \
   'image2-mcp_darwin_amd64.tar.gz' \
   'image2-mcp_linux_arm64.tar.gz' \
@@ -85,16 +85,16 @@ for test_path in 'tests/test-agent-bootstrap.sh' 'tests/test-agent-bootstrap.ps1
     exit 1
   }
 done
-grep -Fq -- '- "v0.2.3"' "$workflow" || {
-  echo 'FAIL: release workflow is not pinned to v0.2.3' >&2
+grep -Fq -- '- "v0.3.0"' "$workflow" || {
+  echo 'FAIL: release workflow is not pinned to v0.3.0' >&2
   exit 1
 }
-grep -Fq 'git tag v0.2.3' "$root/README.md" || {
-  echo 'FAIL: README release instructions are not pinned to v0.2.3' >&2
+grep -Fq 'git tag v0.3.0' "$root/README.md" || {
+  echo 'FAIL: README release instructions are not pinned to v0.3.0' >&2
   exit 1
 }
-grep -Fq '仓库包含 GitHub Actions Release workflow。推送 `v0.2.3` tag 后会自动构建：' "$root/README.md" || {
-  echo 'FAIL: README release trigger is not pinned to v0.2.3' >&2
+grep -Fq '仓库包含 GitHub Actions Release workflow。推送 `v0.3.0` tag 后会自动构建：' "$root/README.md" || {
+  echo 'FAIL: README release trigger is not pinned to v0.3.0' >&2
   exit 1
 }
 if grep -Fq '`v*` tag' "$root/README.md"; then

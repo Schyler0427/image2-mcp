@@ -103,7 +103,7 @@ download_prebuilt() {
   }
   asset="image2-mcp_${os}_${arch}.tar.gz"
   if [[ "$key_only" -eq 1 ]]; then
-    url="https://github.com/${repo}/releases/download/v0.2.3/${asset}"
+    url="https://github.com/${repo}/releases/download/v0.3.0/${asset}"
   else
     url="https://github.com/${repo}/releases/latest/download/${asset}"
   fi

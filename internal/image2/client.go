@@ -21,7 +21,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.schyler.top"
-	DefaultModel   = "gpt-image-2"
+	DefaultModel   = "gpt-image-2.5-sunburst"
 	DefaultSize    = "1024x1024"
 	DefaultQuality = "auto"
 )
@@ -30,6 +30,7 @@ var safeNameRE = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
 type Client struct {
 	apiKey        string
+	model         string
 	endpoint      string
 	editsEndpoint string
 	outputDir     string
@@ -72,6 +73,7 @@ func NewFromEnv(outputDir string) (*Client, error) {
 	}
 	return &Client{
 		apiKey:        apiKey,
+		model:         configuredModel(),
 		endpoint:      BuildGenerationsEndpoint(baseURL),
 		editsEndpoint: BuildEditsEndpoint(baseURL),
 		outputDir:     outputDir,
@@ -93,11 +95,20 @@ func New(apiKey, baseURL, outputDir string, httpClient *http.Client) (*Client, e
 	}
 	return &Client{
 		apiKey:        apiKey,
+		model:         configuredModel(),
 		endpoint:      BuildGenerationsEndpoint(baseURL),
 		editsEndpoint: BuildEditsEndpoint(baseURL),
 		outputDir:     outputDir,
 		httpClient:    httpClient,
 	}, nil
+}
+
+func configuredModel() string {
+	model := strings.TrimSpace(os.Getenv("OPENAI_IMAGE_MODEL"))
+	if model == "" {
+		return DefaultModel
+	}
+	return model
 }
 
 func BuildGenerationsEndpoint(baseURL string) string {
@@ -139,7 +150,7 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 	}
 
 	payload := map[string]any{
-		"model":  DefaultModel,
+		"model":  c.model,
 		"prompt": prompt,
 		"size":   size,
 		"n":      1,
@@ -169,7 +180,7 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return GenerateResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
 	}
-	return saveImageResponse(respBody, size, outputDir, input.OutputName)
+	return saveImageResponse(respBody, size, outputDir, input.OutputName, c.model)
 }
 
 func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error) {
@@ -227,12 +238,11 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 		name  string
 		value string
 	}{
-		{name: "model", value: DefaultModel},
+		{name: "model", value: c.model},
 		{name: "prompt", value: prompt},
 		{name: "size", value: size},
 		{name: "quality", value: quality},
 		{name: "n", value: "1"},
-		{name: "response_format", value: "b64_json"},
 	}
 	for _, field := range fields {
 		if err := writer.WriteField(field.name, field.value); err != nil {
@@ -273,7 +283,7 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return EditResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
 	}
-	return saveImageResponse(respBody, size, outputDir, input.OutputName)
+	return saveImageResponse(respBody, size, outputDir, input.OutputName, c.model)
 }
 
 func requireRegularFile(path, kind string) error {
@@ -319,7 +329,7 @@ func writeMultipartFile(writer *multipart.Writer, fieldName, path string) error 
 	return nil
 }
 
-func saveImageResponse(respBody []byte, size, outputDir, outputName string) (GenerateResult, error) {
+func saveImageResponse(respBody []byte, size, outputDir, outputName, model string) (GenerateResult, error) {
 	var parsed struct {
 		Data []struct {
 			B64JSON string `json:"b64_json"`
@@ -352,7 +362,7 @@ func saveImageResponse(respBody []byte, size, outputDir, outputName string) (Gen
 
 	return GenerateResult{
 		FilePath: filePath,
-		Model:    DefaultModel,
+		Model:    model,
 		Size:     size,
 	}, nil
 }
