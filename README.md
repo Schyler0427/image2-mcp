@@ -13,7 +13,7 @@ Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个
 请安装并配置 Image2 MCP：读取并严格执行 https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/AGENT_INSTALL.md，除 API Key 外不要向我询问其他配置，完成安装和验证后再结束。
 ```
 
-客户只需输入 API Key。
+首次安装时客户只需输入 API Key；已有安装升级时会自动复用本地 Key，不会重复询问。
 
 默认模型是 `gpt-image-2.5-sunburst`。如网关提供更快的
 `gpt-image-2.5-flare`，可在本地 `.env.local` 中额外设置
@@ -211,7 +211,7 @@ go build -o .\dist\image2-mcp.exe .\cmd\image2-mcp
 
 ### 发布 GitHub Release
 
-仓库包含 GitHub Actions Release workflow。推送 `v0.3.0` tag 后会自动构建：
+仓库包含 GitHub Actions Release workflow。推送 `v0.3.1` tag 后会自动构建：
 
 ```text
 darwin/arm64
@@ -225,8 +225,8 @@ windows/amd64
 发布方式：
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 Release 产物命名：

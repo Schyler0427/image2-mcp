@@ -197,6 +197,19 @@ function Read-KeyOnce {
   $script:KeyOnlyApiKey = $Value
 }
 
+function Test-ExistingKeyOnlyEnvironment {
+  $Path = Join-Path $RepoDir ".env.local"
+  if (-not (Test-Path (Join-Path $RepoDir ".image2-mcp-managed") -PathType Leaf)) { return $false }
+  if (-not (Test-Path $Path -PathType Leaf)) { return $false }
+  foreach ($Line in Get-Content -LiteralPath $Path) {
+    if ($Line -match '^\s*OPENAI_IMAGE_API_KEY\s*=\s*(.+?)\s*$') {
+      $Candidate = $Matches[1].Trim()
+      if (-not [string]::IsNullOrWhiteSpace($Candidate) -and $Candidate -ne '""' -and $Candidate -ne "''") { return $true }
+    }
+  }
+  return $false
+}
+
 function Get-GitHubRepoSlug {
   if ($env:IMAGE2_MCP_REPO) {
     return $env:IMAGE2_MCP_REPO
@@ -228,7 +241,7 @@ function Install-Prebuilt {
   $Arch = Get-ArchName
   $Asset = "image2-mcp_windows_${Arch}.zip"
   $Url = if ($KeyOnly) {
-    "https://github.com/${Repo}/releases/download/v0.3.0/${Asset}"
+    "https://github.com/${Repo}/releases/download/v0.3.1/${Asset}"
   } else {
     "https://github.com/${Repo}/releases/latest/download/${Asset}"
   }
@@ -671,8 +684,14 @@ function Invoke-Installer {
       Assert-SupportedImage2Config (Join-Path $HOME ".codex\config.toml")
     }
     if ($KeyOnly) {
-      Read-KeyOnce
-      Write-KeyOnlyEnvironment
+      if (Test-ExistingKeyOnlyEnvironment) {
+        Write-Host "==> Existing API Key configuration found; reusing it."
+        Import-DotEnv (Join-Path $RepoDir ".env.local")
+        Set-RestrictedFileAcl (Join-Path $RepoDir ".env.local")
+      } else {
+        Read-KeyOnce
+        Write-KeyOnlyEnvironment
+      }
       $env:OPENAI_IMAGE_BASE_URL = $KeyOnlyBaseUrl
       $env:OPENAI_IMAGE_API_KEY = $script:KeyOnlyApiKey
     } else {

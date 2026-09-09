@@ -103,7 +103,7 @@ download_prebuilt() {
   }
   asset="image2-mcp_${os}_${arch}.tar.gz"
   if [[ "$key_only" -eq 1 ]]; then
-    url="https://github.com/${repo}/releases/download/v0.3.0/${asset}"
+    url="https://github.com/${repo}/releases/download/v0.3.1/${asset}"
   else
     url="https://github.com/${repo}/releases/latest/download/${asset}"
   fi
@@ -251,6 +251,21 @@ write_key_only_env() {
   } >"$tmp"
   mv -f "$tmp" "$target"
   chmod 600 "$target"
+}
+
+has_existing_key_only_environment() {
+  local env_file="${repo_dir}/.env.local"
+  [[ -f "${repo_dir}/.image2-mcp-managed" && ! -L "${repo_dir}/.image2-mcp-managed" ]] || return 1
+  [[ -f "$env_file" && ! -L "$env_file" ]] || return 1
+  awk '
+    /^[[:space:]]*OPENAI_IMAGE_API_KEY[[:space:]]*=/ {
+      value = $0
+      sub(/^[^=]*=/, "", value)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      if (value != "" && value != "\"\"" && value != "''") found = 1
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$env_file"
 }
 
 remove_image2_config_namespace() {
@@ -693,8 +708,13 @@ run_install() {
   mkdir -p dist
 
   if [[ "$key_only" -eq 1 ]]; then
-    read_key_once
-    write_key_only_env
+    if has_existing_key_only_environment; then
+      echo '==> Existing API Key configuration found; reusing it.'
+      load_legacy_environment
+    else
+      read_key_once
+      write_key_only_env
+    fi
     export OPENAI_IMAGE_BASE_URL="$readonly_key_only_base_url"
     export OPENAI_IMAGE_API_KEY="$key_only_api_key"
   else

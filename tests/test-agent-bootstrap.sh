@@ -18,7 +18,7 @@ mkdir -p "$fakebin" "$tmp/sources"
 release_json="$tmp/release.json"
 cat >"$release_json" <<'JSON'
 {
-  "tag_name": "v0.3.0",
+  "tag_name": "v0.3.1",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -34,16 +34,16 @@ JSON
 
 release_page="$tmp/release.html"
 cat >"$release_page" <<'HTML'
-<title>Release v0.3.0 · Schyler0427/image2-mcp · GitHub</title>
+<title>Release v0.3.1 · Schyler0427/image2-mcp · GitHub</title>
 HTML
 release_assets_page="$tmp/release-assets.html"
 cat >"$release_assets_page" <<'HTML'
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.0/image2-mcp_darwin_arm64.tar.gz">image2-mcp_darwin_arm64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.0/image2-mcp_darwin_amd64.tar.gz">image2-mcp_darwin_amd64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.0/image2-mcp_linux_arm64.tar.gz">image2-mcp_linux_arm64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.0/image2-mcp_linux_amd64.tar.gz">image2-mcp_linux_amd64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.0/image2-mcp_windows_arm64.zip">image2-mcp_windows_arm64.zip</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.0/image2-mcp_windows_amd64.zip">image2-mcp_windows_amd64.zip</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.3.1/image2-mcp_darwin_arm64.tar.gz">image2-mcp_darwin_arm64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.3.1/image2-mcp_darwin_amd64.tar.gz">image2-mcp_darwin_amd64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.3.1/image2-mcp_linux_arm64.tar.gz">image2-mcp_linux_arm64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.3.1/image2-mcp_linux_amd64.tar.gz">image2-mcp_linux_amd64.tar.gz</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.3.1/image2-mcp_windows_arm64.zip">image2-mcp_windows_arm64.zip</a>
+<a href="/Schyler0427/image2-mcp/releases/download/v0.3.1/image2-mcp_windows_amd64.zip">image2-mcp_windows_amd64.zip</a>
 HTML
 
 cat >"$fakebin/curl" <<'CURL'
@@ -63,22 +63,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
   case "$url" in
-    https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.0)
+    https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.1)
     if [[ "${BOOTSTRAP_FIXTURE_RELEASE_API_FAIL:-0}" == 1 ]]; then
       exit 22
     fi
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/releases/tag/v0.3.0)
+  https://github.com/Schyler0427/image2-mcp/releases/tag/v0.3.1)
     if [[ "${BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL:-0}" == 1 ]]; then
       exit 22
     fi
     cp "$BOOTSTRAP_FIXTURE_RELEASE_PAGE" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.3.0)
+  https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.3.1)
     cp "$BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.0.tar.gz)
+  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.1.tar.gz)
     if [[ -n "${BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER:-}" ]]; then
       : >"$BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER"
     fi
@@ -177,7 +177,7 @@ chmod +x "$fakebin/rm"
 
 make_source_archive() {
   local name="$1" version="$2" mode="${3:-ok}" tree archive
-  tree="$tmp/sources/$name/image2-mcp-0.3.0"
+  tree="$tmp/sources/$name/image2-mcp-0.3.1"
   archive="$tmp/sources/$name.tar.gz"
   mkdir -p "$tree/scripts"
   printf 'module fixture\n' >"$tree/go.mod"
@@ -188,11 +188,15 @@ make_source_archive() {
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "${1:-}" == '--key-only' ]] || exit 64
-printf 'OPENAI_IMAGE_API_KEY: ' >&2
-IFS= read -r fixture_key || exit 65
-printf '\n' >&2
-[[ "$fixture_key" =~ [^[:space:]] ]] || exit 66
-printf 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top\nOPENAI_IMAGE_API_KEY=stored\n' >.env.local
+if [[ ! -f .env.local ]]; then
+  printf 'OPENAI_IMAGE_API_KEY: ' >&2
+  IFS= read -r fixture_key || exit 65
+  printf '\n' >&2
+  [[ "$fixture_key" =~ [^[:space:]] ]] || exit 66
+  printf 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top\nOPENAI_IMAGE_API_KEY=stored\n' >.env.local
+else
+  printf '==> Existing API Key configuration found; reusing it.\n'
+fi
 chmod 600 .env.local
 mkdir -p dist "$HOME/.codex"
 printf 'fixture binary\n' >dist/image2-mcp
@@ -222,7 +226,7 @@ INSTALL
       rm -f "$tree/scripts/run-image2-mcp.sh"
       ;;
   esac
-  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.3.0
+  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.3.1
   printf '%s\n' "$archive"
 }
 
@@ -231,10 +235,10 @@ make_canonical_duplicate_archive() {
   local archive="$tmp/sources/canonical-duplicate.tar.gz"
   local file_tree="$tmp/sources/canonical-file" directory_tree="$tmp/sources/canonical-directory"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$file_tree/image2-mcp-0.3.0" "$directory_tree/image2-mcp-0.3.0/canonical-path"
-  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.3.0/canonical-path"
-  tar -rf "$plain" -C "$file_tree" image2-mcp-0.3.0/canonical-path
-  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.3.0/canonical-path
+  mkdir -p "$file_tree/image2-mcp-0.3.1" "$directory_tree/image2-mcp-0.3.1/canonical-path"
+  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.3.1/canonical-path"
+  tar -rf "$plain" -C "$file_tree" image2-mcp-0.3.1/canonical-path
+  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.3.1/canonical-path
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -243,9 +247,9 @@ make_repeated_slash_archive() {
   local base_archive="$1" plain="$tmp/sources/repeated-slash.tar"
   local archive="$tmp/sources/repeated-slash.tar.gz" tree="$tmp/sources/repeated-slash"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$tree/image2-mcp-0.3.0/repeated"
-  printf 'repeated slash path\n' >"$tree/image2-mcp-0.3.0/repeated/path.txt"
-  tar -rf "$plain" -C "$tree" image2-mcp-0.3.0//repeated/path.txt
+  mkdir -p "$tree/image2-mcp-0.3.1/repeated"
+  printf 'repeated slash path\n' >"$tree/image2-mcp-0.3.1/repeated/path.txt"
+  tar -rf "$plain" -C "$tree" image2-mcp-0.3.1//repeated/path.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -255,11 +259,11 @@ make_case_ambiguous_archive() {
   local archive="$tmp/sources/case-ambiguous.tar.gz"
   local upper_tree="$tmp/sources/case-upper" lower_tree="$tmp/sources/case-lower"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$upper_tree/image2-mcp-0.3.0" "$lower_tree/image2-mcp-0.3.0"
-  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.3.0/CasePath.txt"
-  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.3.0/casepath.txt"
-  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.3.0/CasePath.txt
-  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.3.0/casepath.txt
+  mkdir -p "$upper_tree/image2-mcp-0.3.1" "$lower_tree/image2-mcp-0.3.1"
+  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.3.1/CasePath.txt"
+  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.3.1/casepath.txt"
+  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.3.1/CasePath.txt
+  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.3.1/casepath.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -379,10 +383,10 @@ assert_contains "$page_first_log" 'Preparing installation...'
 assert_contains "$page_first_log" 'Installing platform binary...'
 assert_contains "$page_first_log" 'Verifying local installation...'
 assert_not_contains "$page_first_network" 'api.github.com'
-[[ "$(grep -c '/releases/tag/v0.3.0' "$page_first_network")" -eq 1 ]] || fail 'Release page was retried'
-[[ "$(grep -c '/releases/expanded_assets/v0.3.0' "$page_first_network")" -eq 1 ]] || fail 'assets page was retried'
+[[ "$(grep -c '/releases/tag/v0.3.1' "$page_first_network")" -eq 1 ]] || fail 'Release page was retried'
+[[ "$(grep -c '/releases/expanded_assets/v0.3.1' "$page_first_network")" -eq 1 ]] || fail 'assets page was retried'
 grep -Fq -- '--connect-timeout 5 --max-time 15' "$page_first_network" || fail 'metadata timeout is not bounded'
-grep -Fq -- '--connect-timeout 10 --max-time 60 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.0.tar.gz' \
+grep -Fq -- '--connect-timeout 10 --max-time 60 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.1.tar.gz' \
   "$page_first_network" || fail 'source timeout is not bounded'
 
 # If the public page is unavailable, the helper makes one short API fallback.
@@ -401,9 +405,9 @@ if ! printf '%s\n' 'fixture-key-redacted' |
   fail 'page failure did not recover through the API'
 fi
 assert_contains "$api_fallback_log" 'Verification: OK'
-[[ "$(grep -c '/releases/tag/v0.3.0' "$api_fallback_network")" -eq 1 ]] || fail 'failed Release page was retried'
+[[ "$(grep -c '/releases/tag/v0.3.1' "$api_fallback_network")" -eq 1 ]] || fail 'failed Release page was retried'
 [[ "$(grep -c 'api.github.com' "$api_fallback_network")" -eq 1 ]] || fail 'API fallback was not called exactly once'
-if grep -Fq '/releases/expanded_assets/v0.3.0' "$api_fallback_network"; then
+if grep -Fq '/releases/expanded_assets/v0.3.1' "$api_fallback_network"; then
   fail 'assets page was called after Release page failure'
 fi
 
@@ -495,6 +499,9 @@ assert_not_contains "$tmp/first.log" 'fixture-key-redacted'
 
 run_bootstrap "$clean_home" "$v2_archive" "$tmp/clean-repeat.log" || fail 'clean repeat failed'
 [[ "$(cat "$clean_target/version.txt")" == 'version-two' ]] || fail 'clean repeat did not activate new source'
+assert_not_contains "$tmp/clean-repeat.log" 'OPENAI_IMAGE_API_KEY:'
+assert_contains "$tmp/clean-repeat.log" 'Existing API Key configuration found; reusing it.'
+assert_contains "$clean_target/.env.local" 'OPENAI_IMAGE_API_KEY=stored'
 clean_backup="$(find_previous_backup "$clean_home/.local/share" | sed -n '1p')"
 [[ -n "$clean_backup" && -d "$clean_backup" ]] || fail 'clean repeat did not retain complete backup'
 [[ "$(cat "$clean_backup/version.txt")" == 'version-one' ]] || fail 'clean repeat backup is not the old target'

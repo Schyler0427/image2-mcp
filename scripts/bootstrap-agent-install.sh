@@ -3,11 +3,11 @@ set -euo pipefail
 
 readonly_repo_url='https://github.com/Schyler0427/image2-mcp.git'
 readonly_repo_slug='Schyler0427/image2-mcp'
-readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.0'
-readonly_release_page='https://github.com/Schyler0427/image2-mcp/releases/tag/v0.3.0'
-readonly_release_assets_page='https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.3.0'
-readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.0.tar.gz'
-readonly_source_root='image2-mcp-0.3.0'
+readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.1'
+readonly_release_page='https://github.com/Schyler0427/image2-mcp/releases/tag/v0.3.1'
+readonly_release_assets_page='https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.3.1'
+readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.1.tar.gz'
+readonly_source_root='image2-mcp-0.3.1'
 readonly_base_url='https://api.schyler.top'
 
 txn=''
@@ -88,7 +88,7 @@ expected = {
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     release = json.load(handle)
 assets = {item.get("name") for item in release.get("assets", []) if isinstance(item, dict)}
-if release.get("tag_name") != "v0.3.0" or release.get("draft") is not False or release.get("prerelease") is not False:
+if release.get("tag_name") != "v0.3.1" or release.get("draft") is not False or release.get("prerelease") is not False:
     raise SystemExit(1)
 if not expected.issubset(assets):
     raise SystemExit(1)
@@ -97,7 +97,7 @@ PY
   fi
   if command -v jq >/dev/null 2>&1; then
     jq -e '
-      .tag_name == "v0.3.0" and
+      .tag_name == "v0.3.1" and
       .draft == false and
       .prerelease == false and
       ([.assets[].name] | contains([
@@ -118,9 +118,9 @@ PY
   [[ -n "$json_text" ]] || fail 'public Release JSON is empty'
   [[ "${json_text#\{}" != "$json_text" && "${json_text%\}}" != "$json_text" ]] ||
     fail 'public Release JSON is not an object'
-  grep -Fq '"tag_name":"v0.3.0"' "$compact" || fail 'public Release tag is not v0.3.0'
-  grep -Fq '"draft":false' "$compact" || fail 'public v0.3.0 Release is a draft'
-  grep -Fq '"prerelease":false' "$compact" || fail 'public v0.3.0 Release is a prerelease'
+  grep -Fq '"tag_name":"v0.3.1"' "$compact" || fail 'public Release tag is not v0.3.1'
+  grep -Fq '"draft":false' "$compact" || fail 'public v0.3.1 Release is a draft'
+  grep -Fq '"prerelease":false' "$compact" || fail 'public v0.3.1 Release is a prerelease'
   for asset in \
     'image2-mcp_darwin_arm64.tar.gz' \
     'image2-mcp_darwin_amd64.tar.gz' \
@@ -129,14 +129,14 @@ PY
     'image2-mcp_windows_arm64.zip' \
     'image2-mcp_windows_amd64.zip'; do
     grep -Fq "\"name\":\"$asset\"" "$compact" ||
-      fail "public v0.3.0 Release is missing required asset: $asset"
+      fail "public v0.3.1 Release is missing required asset: $asset"
   done
 }
 
 validate_release_page() {
   local page_file="$txn/release.html" assets_file="$txn/release-assets.html" asset
   download_metadata "$readonly_release_page" "$page_file" || return 1
-  grep -Fq '<title>Release v0.3.0 · Schyler0427/image2-mcp · GitHub</title>' "$page_file" || return 1
+  grep -Fq '<title>Release v0.3.1 · Schyler0427/image2-mcp · GitHub</title>' "$page_file" || return 1
   if grep -Eiq '>Pre-release<' "$page_file"; then
     return 1
   fi
@@ -148,7 +148,7 @@ validate_release_page() {
     'image2-mcp_linux_amd64.tar.gz' \
     'image2-mcp_windows_arm64.zip' \
     'image2-mcp_windows_amd64.zip'; do
-    grep -Fq "/releases/download/v0.3.0/$asset" "$assets_file" || return 1
+    grep -Fq "/releases/download/v0.3.1/$asset" "$assets_file" || return 1
   done
 }
 
@@ -425,7 +425,7 @@ main() {
 
   printf 'Checking public Release...\n'
   validate_release_gate ||
-    fail 'public v0.3.0 Release gate failed; public pages and GitHub API did not pass'
+    fail 'public v0.3.1 Release gate failed; public pages and GitHub API did not pass'
 
   if [[ -e "$target" || -L "$target" ]]; then
     validate_existing_target
@@ -443,6 +443,10 @@ main() {
   stage="$extract/$readonly_source_root"
   validate_staged_source "$stage"
   printf '%s' "$readonly_repo_slug" >"$stage/.image2-mcp-managed"
+  if [[ "$repeat" -eq 1 && -e "$target/.env.local" ]]; then
+    [[ -f "$target/.env.local" && ! -L "$target/.env.local" ]] || fail 'existing API Key configuration is not a regular file'
+    cp -p "$target/.env.local" "$stage/.env.local"
+  fi
   snapshot_codex_config
 
   if [[ "$repeat" -eq 1 ]]; then

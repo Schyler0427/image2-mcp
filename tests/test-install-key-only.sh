@@ -114,7 +114,7 @@ printf '%s\nignored-second-line\n' "$secret" |
 assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
-assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.0/$expected_asset"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.1/$expected_asset"
 assert_contains "$curl_args" '--connect-timeout'
 assert_contains "$curl_args" '10'
 assert_contains "$curl_args" '--max-time'
@@ -177,6 +177,7 @@ assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
 )
 
 spaced_home="$tmp/spaced-home"
+rm -f "$repo/.env.local"
 mkdir -p "$spaced_home/.codex"
 cat > "$spaced_home/.codex/config.toml" <<'TOML'
 model = "gpt-5"
@@ -362,7 +363,8 @@ assert_contains "$tmp/sibling-assignment.log" 'Verification: OK'
 assert_line "$sibling_assignment_home/.codex/config.toml" 'mcp_servers.keep.command = "ok"'
 assert_line "$sibling_assignment_home/.codex/config.toml" '"mcp_servers" . "keep-quoted" . command = "quoted ok"'
 
-nul_env_before="$(cksum "$repo/.env.local")"
+rm -f "$repo/.env.local"
+nul_env_before='absent'
 nul_binary_before="$(cksum "$repo/dist/image2-mcp")"
 nul_config_before="$(cksum "$home/.codex/config.toml")"
 if printf 'nul-prefix\0nul-suffix\nignored-second-line\n' |
@@ -373,16 +375,16 @@ fi
 assert_contains "$tmp/nul.log" 'API Key must be one line and cannot contain NUL'
 assert_not_contains "$tmp/nul.log" 'nul-prefix'
 assert_not_contains "$tmp/nul.log" 'nul-suffix'
-[[ "$(cksum "$repo/.env.local")" == "$nul_env_before" ]] || fail 'NUL input changed .env.local'
+[[ ! -e "$repo/.env.local" ]] || fail 'NUL input changed .env.local'
 [[ "$(cksum "$repo/dist/image2-mcp")" == "$nul_binary_before" ]] || fail 'NUL input changed binary'
 [[ "$(cksum "$home/.codex/config.toml")" == "$nul_config_before" ]] || fail 'NUL input changed Codex config'
 
-before="$(cksum "$repo/.env.local")"
+before='absent'
 if printf '   \n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/blank.log" 2>&1; then
   fail 'blank key unexpectedly succeeded'
 fi
-[[ "$(cksum "$repo/.env.local")" == "$before" ]] || fail 'blank key changed .env.local'
+[[ ! -e "$repo/.env.local" ]] || fail 'blank key changed .env.local'
 
 if printf '%s\n' "$secret" | HOME="$home" "$repo/install.sh" --key-only --base-url https://example.invalid \
   >"$tmp/conflict.log" 2>&1; then
