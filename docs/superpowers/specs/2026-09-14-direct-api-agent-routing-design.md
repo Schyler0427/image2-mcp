@@ -4,12 +4,19 @@
 
 After a customer configures one API Key, Image2 MCP should be usable by saying
 “帮我生成一张图” or explicitly “使用 image2 生成”; the Agent should select
-the image tool without asking for Base URL, model, or endpoint details.
+the image tool without asking for Base URL, model, or endpoint details. The
+default model is Image 2.0 (`gpt-image-2.0`), while Image 2.5 remains available
+when the customer explicitly asks for “2.5”. Customers never need to provide a
+model ID.
 
 ## Scope
 
 - Keep the fixed default gateway `https://api.schyler.top`.
-- Keep the default model `gpt-image-2.5-sunburst`.
+- Change the default model to `gpt-image-2.0`.
+- Add an optional per-request `version` selector with the public values `2.0`
+  and `2.5`; explicit Image 2.5 requests map internally to
+  `gpt-image-2.5-sunburst` without exposing that ID to customers or changing
+  their default.
 - Preserve the existing key-only installer and local `.env.local` storage.
 - Update MCP server instructions, tool descriptions, and customer documentation
   to state automatic and explicit invocation paths.
@@ -22,7 +29,9 @@ that natural-language image requests should call `generate_image2` directly and
 that explicit “使用 image2” requests use the same tool. The tool descriptions
 repeat the routing rule and identify generation versus editing. The runner loads
 the locally stored key and the client resolves the gateway and model defaults;
-no key or endpoint is passed through tool arguments.
+the optional version is passed only as a tool argument when explicitly
+requested, then mapped to the internal model ID; no key, endpoint, or model ID
+is passed through customer-facing configuration.
 
 ## Error handling and security
 
@@ -36,6 +45,9 @@ as part of normal image generation.
 - Unit tests assert the server Instructions contain the automatic and explicit
   routing rules and the fixed gateway/model defaults.
 - Unit tests assert both tool descriptions identify the correct tool behavior.
+- Client tests assert Image 2.0 is the default and an explicit Image 2.5 version
+  selector sends the internal 2.5 model ID to both generation and edit
+  endpoints.
 - Existing Go, installer contract, bootstrap, and platform build checks remain
   required before release.
 
