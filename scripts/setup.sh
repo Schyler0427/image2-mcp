@@ -711,6 +711,7 @@ run_install() {
     if has_existing_key_only_environment; then
       echo '==> Existing API Key configuration found; reusing it.'
       load_legacy_environment
+      key_only_api_key="${OPENAI_IMAGE_API_KEY}"
     else
       read_key_once
       write_key_only_env

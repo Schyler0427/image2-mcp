@@ -168,6 +168,7 @@ assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
 [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'image2 root table count is not 1'
 [[ "$(file_mode "$repo/.env.local")" == 600 ]] || fail '.env.local mode is not 600'
 [[ -x "$repo/dist/image2-mcp" ]] || fail 'binary is missing or not executable'
+touch "$repo/.image2-mcp-managed"
 (
   set -a
   source "$repo/.env.local"
