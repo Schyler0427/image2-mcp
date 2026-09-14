@@ -2,10 +2,33 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 doc="$root/AGENT_INSTALL.md"
+readme="$root/README.md"
 workflow="$root/.github/workflows/release.yml"
 windows_installer="$root/install.ps1"
 [[ -f "$doc" ]] || { echo 'FAIL: AGENT_INSTALL.md missing' >&2; exit 1; }
 [[ -f "$windows_installer" ]] || { echo 'FAIL: install.ps1 missing' >&2; exit 1; }
+for required in \
+  '用 2.5 生图' \
+  'gpt-image-2.0' \
+  '自动路由到 `generate_image2`' \
+  'https://api.schyler.top' \
+  '只需提供 API Key' \
+  '帮我生成一张图' \
+  '使用 image2 生成'; do
+  grep -Fq "$required" "$readme" || { echo "FAIL: README missing image version contract: $required" >&2; exit 1; }
+done
+for required in \
+  '用 2.5 生图' \
+  'gpt-image-2.0' \
+  '自动路由到 `generate_image2`' \
+  '只需提供 API Key' \
+  '永远不要询问客户模型 ID、Base URL 或 endpoint'; do
+  grep -Fq "$required" "$doc" || { echo "FAIL: Agent guide missing image version contract: $required" >&2; exit 1; }
+done
+if grep -Eiq 'ask (for|the user for).*(model id|base url|endpoint)|请输入.*(模型 ID|Base URL|endpoint)' "$readme" "$doc"; then
+  echo 'FAIL: customer docs ask for model ID, Base URL, or endpoint' >&2
+  exit 1
+fi
 for required in \
   'https://github.com/Schyler0427/image2-mcp' \
   'Schyler0427/image2-mcp' \

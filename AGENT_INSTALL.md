@@ -16,6 +16,14 @@ diagnostic, or expose any partial or derived form of it.
 - macOS/Linux target: `$HOME/.local/share/image2-mcp`
 - Windows target: `%LOCALAPPDATA%\image2-mcp`
 - Managed marker: `.image2-mcp-managed`
+- Image version: default `gpt-image-2.0`; the customer-facing terms are Image 2.0
+  and Image 2.5. Natural-language requests such as “帮我生成一张图”,
+  “使用 image2 生成”, and “用 2.5 生图”会自动路由到 `generate_image2`，并使用
+  请求的版本。
+- 客户只需提供 API Key。The fixed gateway is
+  `https://api.schyler.top`; a model ID, Base URL, or endpoint is never requested
+  from the customer. Only a maintainer may override the default model.
+- 永远不要询问客户模型 ID、Base URL 或 endpoint。
 
 The public Release must have `draft` and `prerelease` set to `false` and must
 contain all six assets before the helper changes the target or reads the key:

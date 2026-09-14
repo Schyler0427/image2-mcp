@@ -2,8 +2,8 @@
 
 Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个工具：
 
-- `generate_image2`：调用 OpenAI-compatible 的 `gpt-image-2.5-sunburst` 生图接口
-- `edit_image2`：调用 `gpt-image-2.5-sunburst` 的图生图编辑接口（支持多图输入和可选蒙版）
+- `generate_image2`：调用固定网关的 `gpt-image-2.0` 生图接口
+- `edit_image2`：调用 `gpt-image-2.0` 的图生图编辑接口（支持多图输入和可选蒙版）
 
 两个工具都会把接口返回的 `b64_json` 解码成 PNG 文件并保存到本地。
 
@@ -15,9 +15,8 @@ Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个
 
 首次安装时客户只需输入 API Key；已有安装升级时会自动复用本地 Key，不会重复询问。
 
-默认模型是 `gpt-image-2.5-sunburst`。如网关提供更快的
-`gpt-image-2.5-flare`，可在本地 `.env.local` 中额外设置
-`OPENAI_IMAGE_MODEL="gpt-image-2.5-flare"`；客户安装时仍只需输入 API Key。
+默认使用 `gpt-image-2.0`。客户只需提供 API Key，固定网关会根据自然语言自动路由到
+`generate_image2`；客户不需要填写模型 ID、Base URL 或 endpoint。需要 2.5 时直接说“用 2.5 生图”。
 
 ## 维护者和高级安装
 
@@ -34,9 +33,7 @@ https://api.schyler.top
 {OPENAI_IMAGE_BASE_URL}/v1/images/edits
 ```
 
-如果 `OPENAI_IMAGE_BASE_URL` 已经以 `/v1`、`/v1/images/generations` 或
-`/v1/images/edits` 结尾，程序会自动避免重复拼接 `/v1`，并推导出另一个
-图片端点。
+客户无需配置或修改 Base URL，程序固定使用上述网关和对应图片端点。
 
 ### 前置条件
 
@@ -75,12 +72,11 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Interactive -ConfigureCo
 
 安装脚本会做这些事：
 
-1. 交互式输入 `OPENAI_IMAGE_BASE_URL`
-2. 交互式输入 `OPENAI_IMAGE_API_KEY`
-3. 写入本地 `.env.local`
-4. 如果本机有 Go，执行 `go test ./...` 并编译 MCP 服务到 `dist/`
-5. 如果本机没有 Go，从 GitHub Releases 下载预编译二进制到 `dist/`
-6. 写入 Codex MCP 配置
+1. 仅交互式输入 `OPENAI_IMAGE_API_KEY`
+2. 写入本地 `.env.local`
+3. 如果本机有 Go，执行 `go test ./...` 并编译 MCP 服务到 `dist/`
+4. 如果本机没有 Go，从 GitHub Releases 下载预编译二进制到 `dist/`
+5. 写入 Codex MCP 配置
 
 `.env.local`、`dist/`、`output/` 都已加入 `.gitignore`，不要提交到 GitHub。
 
@@ -136,13 +132,12 @@ OPENAI_IMAGE_BASE_URL="https://api.schyler.top"
 
 API Key 会保存在本地 `.env.local`，不在文档示例中展示。
 
-可选的 `OPENAI_IMAGE_MODEL` 也从 `.env.local` 读取；未设置时使用
-`gpt-image-2.5-sunburst`。
+模型由自然语言版本词自动选择，默认使用 `gpt-image-2.0`；客户不填写模型 ID。
 
 Codex 配置里不会直接保存 key。启动 MCP 时，runner 脚本会读取本地
 `.env.local`。
 
-如果要换 key 或 URL，重新运行交互式安装即可：
+如果要换 key，重新运行交互式安装即可。网关和 endpoint 固定，不需要客户输入：
 
 ```bash
 ./install.sh --interactive
@@ -174,6 +169,17 @@ args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\path\\to\\imag
 ```
 
 安装完成后，重启 Codex 或开启新会话，让 Codex 重新加载 MCP 配置。
+
+### 自然语言调用
+
+直接描述任务即可，系统会自动路由到 `generate_image2`：
+
+- “帮我生成一张图”使用默认的 `gpt-image-2.0`
+- “使用 image2 生成一张海边日落”使用默认的 `gpt-image-2.0`
+- “用 2.5 生图，画一只戴帽子的猫”选择 Image 2.5
+
+客户永远不需要提供模型 ID、Base URL 或 endpoint。除非维护者明确覆盖默认配置，
+固定网关始终是 `https://api.schyler.top`。
 
 如果 `~/.codex/config.toml` 已经存在 `[mcp_servers.image2]`，安装脚本不会覆盖它。
 这种情况下如果你移动了项目目录，需要手动更新里面的 runner 路径。
@@ -345,7 +351,7 @@ C:\Users\you\Desktop\images
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk.png",
-  "model": "gpt-image-2.5-sunburst",
+  "model": "gpt-image-2.0",
   "size": "1024x1024"
 }
 ```
@@ -416,7 +422,7 @@ output_name  可选，图片文件名；不传则自动生成 image2-时间戳.p
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk-with-cat.png",
-  "model": "gpt-image-2.5-sunburst",
+  "model": "gpt-image-2.0",
   "size": "1024x1024"
 }
 ```
