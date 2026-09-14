@@ -57,6 +57,43 @@ func TestServerListsGenerateImage2AndEditImage2Tools(t *testing.T) {
 	}
 }
 
+func TestServerInstructionsAndToolDescriptions(t *testing.T) {
+	ctx := context.Background()
+	server := newServer(t.TempDir(), t.TempDir())
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+	clientSession, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientSession.Close()
+
+	instructions := clientSession.InitializeResult().Instructions
+	metadata := instructions
+	tools, err := clientSession.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		metadata += "\n" + tool.Description
+	}
+	for _, phrase := range []string{"帮我生成一张图", "使用 image2", "Image 2.0", "用 2.5 生图", "Image 2.5"} {
+		if !strings.Contains(metadata, phrase) {
+			t.Errorf("metadata missing %q: %q", phrase, metadata)
+		}
+	}
+	for _, internalID := range []string{"gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "OPENAI_IMAGE_MODEL"} {
+		if strings.Contains(metadata, internalID) {
+			t.Errorf("metadata exposes internal identifier %q: %q", internalID, metadata)
+		}
+	}
+}
+
 func TestGenerateImage2ToolReportsMissingAPIKey(t *testing.T) {
 	t.Setenv("OPENAI_IMAGE_API_KEY", "")
 	t.Setenv("OPENAI_IMAGE_BASE_URL", "https://api.schyler.top")

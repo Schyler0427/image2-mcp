@@ -17,6 +17,7 @@ const serverVersion = "0.3.1"
 
 type generateParams struct {
 	Prompt     string `json:"prompt" jsonschema:"Image prompt to generate."`
+	Version    string `json:"version,omitempty" jsonschema:"Optional image version selector: omit for Image 2.0; use 2.5 for Image 2.5."`
 	Size       string `json:"size,omitempty" jsonschema:"Image size, defaults to 1024x1024."`
 	OutputDir  string `json:"output_dir,omitempty" jsonschema:"Optional absolute directory to save the PNG."`
 	OutputName string `json:"output_name,omitempty" jsonschema:"Optional PNG file name. Defaults to image2-{timestamp}.png."`
@@ -24,6 +25,7 @@ type generateParams struct {
 
 type editParams struct {
 	Prompt     string   `json:"prompt" jsonschema:"Image prompt for the edit."`
+	Version    string   `json:"version,omitempty" jsonschema:"Optional image version selector: omit for Image 2.0; use 2.5 for Image 2.5."`
 	ImagePaths []string `json:"image_paths" jsonschema:"Absolute paths to source images, preserved in request order. At least one required."`
 	Size       string   `json:"size,omitempty" jsonschema:"Image size, defaults to 1024x1024."`
 	Quality    string   `json:"quality,omitempty" jsonschema:"Image quality, defaults to auto."`
@@ -53,12 +55,12 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		Name:    "image2-mcp",
 		Version: serverVersion,
 	}, &mcp.ServerOptions{
-		Instructions: "Generate and edit images with gpt-image-2.5-sunburst by default via OPENAI_IMAGE_BASE_URL and OPENAI_IMAGE_API_KEY. Set OPENAI_IMAGE_MODEL to override the model, for example gpt-image-2.5-flare. The generate_image2 tool generates and the edit_image2 tool edits PNG files, saving to output_dir when provided, otherwise output/imagegen, and returns the local file path.",
+		Instructions: "Natural-language image requests such as \"帮我生成一张图\" automatically call generate_image2. You may explicitly say \"使用 image2\" to use these tools. The default is Image 2.0; say \"用 2.5 生图\" or set version to 2.5 to select Image 2.5. Do not ask the user for a Base URL, model ID, endpoint, Go, Git, or admin permission. The tools generate or edit PNG files and return the local file path.",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "generate_image2",
-		Description: "Generate one PNG image using gpt-image-2.5-sunburst by default (or OPENAI_IMAGE_MODEL) and save it locally.",
+		Description: "Generate one PNG image. Natural-language requests automatically use this tool; omit version for Image 2.0 or set version to 2.5 for Image 2.5. Save the result locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params generateParams) (*mcp.CallToolResult, image2.GenerateResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
@@ -66,6 +68,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		}
 		result, err := client.Generate(ctx, image2.GenerateRequest{
 			Prompt:     params.Prompt,
+			Version:    params.Version,
 			Size:       params.Size,
 			OutputDir:  params.OutputDir,
 			OutputName: params.OutputName,
@@ -86,7 +89,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_image2",
-		Description: "Edit one or more local images using gpt-image-2.5-sunburst by default (or OPENAI_IMAGE_MODEL), with an optional mask, and save the result locally.",
+		Description: "Edit one or more local images with an optional mask. Omit version for Image 2.0 or set version to 2.5 for Image 2.5, then save the result locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params editParams) (*mcp.CallToolResult, image2.EditResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
@@ -94,6 +97,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		}
 		result, err := client.Edit(ctx, image2.EditRequest{
 			Prompt:     params.Prompt,
+			Version:    params.Version,
 			Size:       params.Size,
 			Quality:    params.Quality,
 			OutputDir:  params.OutputDir,
