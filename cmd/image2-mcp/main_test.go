@@ -87,10 +87,73 @@ func TestServerInstructionsAndToolDescriptions(t *testing.T) {
 			t.Errorf("metadata missing %q: %q", phrase, metadata)
 		}
 	}
-	for _, internalID := range []string{"gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "OPENAI_IMAGE_MODEL"} {
+	if !strings.Contains(metadata, "OPENAI_IMAGE_MODEL") {
+		t.Errorf("metadata does not explain maintainer default override: %q", metadata)
+	}
+	for _, internalID := range []string{"gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.0"} {
 		if strings.Contains(metadata, internalID) {
 			t.Errorf("metadata exposes internal identifier %q: %q", internalID, metadata)
 		}
+	}
+}
+
+func TestGenerateImage2ToolForwardsVersion25(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/images/generations" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		var request struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if request.Model != "gpt-image-2.5-sunburst" {
+			t.Fatalf("model = %q, want gpt-image-2.5-sunburst", request.Model)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(png)}},
+		})
+	}))
+	defer apiServer.Close()
+
+	t.Setenv("OPENAI_IMAGE_API_KEY", "test-key")
+	t.Setenv("OPENAI_IMAGE_BASE_URL", apiServer.URL)
+	t.Setenv("OPENAI_IMAGE_MODEL", "")
+	outDir := t.TempDir()
+	ctx := context.Background()
+	server := newServer(t.TempDir(), t.TempDir())
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.1.0"}, nil)
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+	clientSession, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientSession.Close()
+
+	result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name: "generate_image2",
+		Arguments: generateParams{
+			Prompt:     "a test image",
+			Version:    "2.5",
+			OutputDir:  outDir,
+			OutputName: "generated.png",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %#v", result.Content)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "generated.png")); err != nil {
+		t.Fatal(err)
 	}
 }
 

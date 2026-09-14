@@ -55,12 +55,12 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		Name:    "image2-mcp",
 		Version: serverVersion,
 	}, &mcp.ServerOptions{
-		Instructions: "Natural-language image requests such as \"帮我生成一张图\" automatically call generate_image2. You may explicitly say \"使用 image2\" to use these tools. The default is Image 2.0; say \"用 2.5 生图\" or set version to 2.5 to select Image 2.5. Do not ask the user for a Base URL, model ID, endpoint, Go, Git, or admin permission. The tools generate or edit PNG files and return the local file path.",
+		Instructions: "Natural-language image requests such as \"帮我生成一张图\" automatically call generate_image2. You may explicitly say \"使用 image2\" to use these tools. The default is Image 2.0 unless the maintainer explicitly sets OPENAI_IMAGE_MODEL to configure a different default; say \"用 2.5 生图\" or set version to 2.5 to select Image 2.5. Do not ask the user for a Base URL, model ID, endpoint, Go, Git, or admin permission. The tools generate or edit PNG files and return the local file path.",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "generate_image2",
-		Description: "Generate one PNG image. Natural-language requests automatically use this tool; omit version for Image 2.0 or set version to 2.5 for Image 2.5. Save the result locally.",
+		Description: "Generate one PNG image. Natural-language requests automatically use this tool; omit version for the maintainer-configured default (Image 2.0 unless OPENAI_IMAGE_MODEL is explicitly set), or set version to 2.5 for Image 2.5. Save the result locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params generateParams) (*mcp.CallToolResult, image2.GenerateResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
@@ -89,7 +89,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_image2",
-		Description: "Edit one or more local images with an optional mask. Omit version for Image 2.0 or set version to 2.5 for Image 2.5, then save the result locally.",
+		Description: "Edit one or more local images with an optional mask. Omit version for the maintainer-configured default (Image 2.0 unless OPENAI_IMAGE_MODEL is explicitly set), or set version to 2.5 for Image 2.5, then save the result locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params editParams) (*mcp.CallToolResult, image2.EditResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
