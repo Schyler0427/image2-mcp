@@ -21,7 +21,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.schyler.top"
-	DefaultModel   = "gpt-image-2.0"
+	DefaultModel   = "gpt-image-2"
 	Image25Model   = "gpt-image-2.5-sunburst"
 	DefaultSize    = "1024x1024"
 	DefaultQuality = "auto"

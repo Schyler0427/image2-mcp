@@ -10,7 +10,7 @@ windows_installer="$root/install.ps1"
 for required in \
   '用 2.5 生图' \
   'Image 2.0' \
-  '自动路由到 `generate_image2`' \
+  'Agent 会根据自然语言自动调用' \
   'https://api.schyler.top' \
   '只需提供 API Key' \
   '帮我生成一张图' \
@@ -20,7 +20,7 @@ done
 for required in \
   '用 2.5 生图' \
   'Image 2.0' \
-  '自动路由到 `generate_image2`' \
+  '会由 Agent 调用 `generate_image2`' \
   '只需提供 API Key' \
   '永远不要询问客户模型 ID、Base URL 或 endpoint'; do
   grep -Fq "$required" "$doc" || { echo "FAIL: Agent guide missing image version contract: $required" >&2; exit 1; }

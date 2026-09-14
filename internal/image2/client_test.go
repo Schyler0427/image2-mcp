@@ -61,8 +61,8 @@ func TestGenerateUsesImage20DefaultModel(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		if got := req["model"]; got != "gpt-image-2.0" {
-			t.Fatalf("model = %v, want gpt-image-2.0", got)
+		if got := req["model"]; got != DefaultModel {
+			t.Fatalf("model = %v, want %s", got, DefaultModel)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}},
@@ -78,8 +78,8 @@ func TestGenerateUsesImage20DefaultModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Model != "gpt-image-2.0" {
-		t.Fatalf("result model = %q, want gpt-image-2.0", result.Model)
+	if result.Model != DefaultModel {
+		t.Fatalf("result model = %q, want %s", result.Model, DefaultModel)
 	}
 }
 

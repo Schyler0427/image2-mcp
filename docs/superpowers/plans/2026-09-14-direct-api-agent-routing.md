@@ -4,13 +4,13 @@
 
 **Goal:** Make Image2 MCP default to Image 2.0 while letting the Agent select Image 2.5 from a natural-language “2.5” request, with the customer providing only an API Key.
 
-**Architecture:** Keep the fixed `https://api.schyler.top` gateway and local key-only runner. Add a public `version` selector (`2.0` or `2.5`) to generation and edit tool inputs; the client maps it to internal model IDs, while an empty selector uses the configured default (`gpt-image-2.0` unless a maintainer explicitly sets `OPENAI_IMAGE_MODEL`). MCP Instructions and tool descriptions teach automatic natural-language routing and explicit “使用 image2” routing.
+**Architecture:** Keep the fixed `https://api.schyler.top` gateway and local key-only runner. Add a public `version` selector (`2.0` or `2.5`) to generation and edit tool inputs; the client maps it to internal model IDs, while an empty selector uses the configured default (`gpt-image-2` unless a maintainer explicitly sets `OPENAI_IMAGE_MODEL`). MCP Instructions and tool descriptions teach automatic natural-language routing and explicit “使用 image2” routing.
 
 **Tech Stack:** Go, modelcontextprotocol/go-sdk, Bash/PowerShell installers, Markdown documentation, Go unit tests.
 
 ## Global Constraints
 
-- Default model is `gpt-image-2.0` when `OPENAI_IMAGE_MODEL` is not explicitly set.
+- Default model is the existing `gpt-image-2` provider ID when `OPENAI_IMAGE_MODEL` is not explicitly set; customer-facing copy says Image 2.0.
 - Image 2.5 maps internally to `gpt-image-2.5-sunburst`; customers never enter a model ID.
 - Fixed default gateway is `https://api.schyler.top`.
 - Installation asks only for `OPENAI_IMAGE_API_KEY`, stores it in local `.env.local`, and does not request elevation.
@@ -25,11 +25,11 @@
 
 **Interfaces:**
 - `GenerateRequest.Version` and `EditRequest.Version` are optional public request fields containing only `"2.0"` or `"2.5"`.
-- `resolveRequestedModel(version string, configured string) (string, error)` maps an empty version to `configured`, `2.0` to `gpt-image-2.0`, and `2.5` to `gpt-image-2.5-sunburst`; other values return `image version must be 2.0 or 2.5`.
+- `resolveRequestedModel(version string, configured string) (string, error)` maps an empty version to `configured`, `2.0` to `gpt-image-2`, and `2.5` to `gpt-image-2.5-sunburst`; other values return `image version must be 2.0 or 2.5`.
 
 - [ ] **Step 1: Write failing tests**
 
-Add tests that clear `OPENAI_IMAGE_MODEL` and assert generation sends `gpt-image-2.0`, generation with `Version: "2.5"` sends `gpt-image-2.5-sunburst`, and edit with `Version: "2.5"` sends the same model in multipart form. Add an invalid-version test asserting the exact validation error.
+Add tests that clear `OPENAI_IMAGE_MODEL` and assert generation sends the existing Image 2.0 provider ID `gpt-image-2`, generation with `Version: "2.5"` sends `gpt-image-2.5-sunburst`, and edit with `Version: "2.5"` sends the same model in multipart form. Add an invalid-version test asserting the exact validation error.
 
 - [ ] **Step 2: Run the focused tests and verify they fail**
 
@@ -44,7 +44,7 @@ Define:
 ```go
 const (
     DefaultBaseURL = "https://api.schyler.top"
-    DefaultModel = "gpt-image-2.0"
+    DefaultModel = "gpt-image-2"
     Image25Model = "gpt-image-2.5-sunburst"
 )
 ```
@@ -113,7 +113,7 @@ git commit -m "feat: route image requests by friendly version"
 
 - [ ] **Step 1: Extend the contract test with failing assertions**
 
-Require the README and AGENT_INSTALL content to contain `用 2.5 生图`, `gpt-image-2.0`, automatic `generate_image2` routing, and the fixed gateway, and to omit instructions asking customers to enter a model ID.
+Require the README and AGENT_INSTALL content to contain `用 2.5 生图`, `Image 2.0`, Agent-driven `generate_image2` routing, and the fixed gateway, and to omit instructions asking customers to enter a model ID.
 
 - [ ] **Step 2: Run the contract test and verify it fails**
 

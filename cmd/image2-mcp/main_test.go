@@ -90,7 +90,7 @@ func TestServerInstructionsAndToolDescriptions(t *testing.T) {
 	if !strings.Contains(metadata, "OPENAI_IMAGE_MODEL") {
 		t.Errorf("metadata does not explain maintainer default override: %q", metadata)
 	}
-	for _, internalID := range []string{"gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.0"} {
+	for _, internalID := range []string{"gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.0", "gpt-image-2"} {
 		if strings.Contains(metadata, internalID) {
 			t.Errorf("metadata exposes internal identifier %q: %q", internalID, metadata)
 		}

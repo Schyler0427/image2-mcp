@@ -15,7 +15,7 @@ Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个
 
 首次安装时客户只需输入 API Key；已有安装升级时会自动复用本地 Key，不会重复询问。
 
-默认使用 Image 2.0。客户只需提供 API Key，固定网关会根据自然语言自动路由到
+默认使用 Image 2.0。客户只需提供 API Key，Agent 会根据自然语言自动调用
 `generate_image2`；客户不需要填写模型 ID、Base URL 或 endpoint。需要 2.5 时直接说“用 2.5 生图”。
 
 ## 维护者和高级安装
@@ -33,7 +33,7 @@ https://api.schyler.top
 {OPENAI_IMAGE_BASE_URL}/v1/images/edits
 ```
 
-客户无需配置或修改 Base URL，程序固定使用上述网关和对应图片端点。
+Key-only 安装无需配置或修改 Base URL；程序默认使用上述网关和对应图片端点。
 
 ### 前置条件
 
@@ -132,7 +132,7 @@ OPENAI_IMAGE_BASE_URL="https://api.schyler.top"
 
 API Key 会保存在本地 `.env.local`，不在文档示例中展示。
 
-模型由自然语言版本词自动选择，默认使用 Image 2.0；客户不填写模型 ID。
+Agent 根据自然语言版本词选择工具参数：未提版本使用 Image 2.0，说“用 2.5 生图”则选择 Image 2.5。客户不填写模型 ID。
 
 Codex 配置里不会直接保存 key。启动 MCP 时，runner 脚本会读取本地
 `.env.local`。
@@ -176,7 +176,7 @@ args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\path\\to\\imag
 
 - “帮我生成一张图”使用默认的 Image 2.0
 - “使用 image2 生成一张海边日落”使用默认的 Image 2.0
-- “用 2.5 生图，画一只戴帽子的猫”选择 Image 2.5
+- “用 2.5 生图，画一只戴帽子的猫”调用 `generate_image2`，并传入 `version=2.5`
 
 客户永远不需要提供模型 ID、Base URL 或 endpoint。除非维护者明确覆盖默认配置，
 固定网关始终是 `https://api.schyler.top`。
@@ -351,7 +351,6 @@ C:\Users\you\Desktop\images
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk.png",
-  "model": "Image 2.0",
   "size": "1024x1024"
 }
 ```
@@ -422,7 +421,6 @@ output_name  可选，图片文件名；不传则自动生成 image2-时间戳.p
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk-with-cat.png",
-  "model": "Image 2.0",
   "size": "1024x1024"
 }
 ```
@@ -444,7 +442,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Help
 常用参数：
 
 ```text
---interactive / -Interactive        交互式输入 URL 和 key
+--interactive / -Interactive        交互式输入 URL 和 key（高级维护者模式）
 --configure-codex / -ConfigureCodex 写入 Codex MCP 配置
 --force-config / -ForceConfig       覆盖已有 image2 MCP 配置
 --base-url / -BaseUrl               指定图片网关地址

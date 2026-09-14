@@ -18,8 +18,7 @@ diagnostic, or expose any partial or derived form of it.
 - Managed marker: `.image2-mcp-managed`
 - Image version: default Image 2.0; the customer-facing terms are Image 2.0
   and Image 2.5. Natural-language requests such as “帮我生成一张图”,
-  “使用 image2 生成”, and “用 2.5 生图”会自动路由到 `generate_image2`，并使用
-  请求的版本。
+  “使用 image2 生成”, and “用 2.5 生图”会由 Agent 调用 `generate_image2`，并使用请求的版本。
 - 客户只需提供 API Key。The fixed gateway is
   `https://api.schyler.top`; a model ID, Base URL, or endpoint is never requested
   from the customer. Only a maintainer may override the default model.

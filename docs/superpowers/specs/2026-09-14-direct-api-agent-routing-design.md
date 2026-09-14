@@ -5,14 +5,14 @@
 After a customer configures one API Key, Image2 MCP should be usable by saying
 “帮我生成一张图” or explicitly “使用 image2 生成”; the Agent should select
 the image tool without asking for Base URL, model, or endpoint details. The
-default model is Image 2.0 (`gpt-image-2.0`), while Image 2.5 remains available
+default model is Image 2.0 (`gpt-image-2` internally), while Image 2.5 remains available
 when the customer explicitly asks for “2.5”, for example “用 2.5 生图”。
 Customers never need to provide a model ID.
 
 ## Scope
 
 - Keep the fixed default gateway `https://api.schyler.top`.
-- Change the default model to `gpt-image-2.0`.
+- Change the default model to the existing Image 2.0 provider ID `gpt-image-2`.
 - Add an optional per-request `version` selector with the public values `2.0`
   and `2.5`; explicit Image 2.5 requests map internally to
   `gpt-image-2.5-sunburst` without exposing that ID to customers or changing
