@@ -4,13 +4,13 @@
 
 **Goal:** Make Image2 MCP default to Image 2.0 while letting the Agent select Image 2.5 from a natural-language “2.5” request, with the customer providing only an API Key.
 
-**Architecture:** Keep the fixed `https://api.schyler.top` gateway and local key-only runner. Add a public `version` selector (`2.0` or `2.5`) to generation and edit tool inputs; the client maps it to internal model IDs, while an empty selector uses the configured default (`gpt-image-2.0`). MCP Instructions and tool descriptions teach automatic natural-language routing and explicit “使用 image2” routing.
+**Architecture:** Keep the fixed `https://api.schyler.top` gateway and local key-only runner. Add a public `version` selector (`2.0` or `2.5`) to generation and edit tool inputs; the client maps it to internal model IDs, while an empty selector uses the configured default (`gpt-image-2.0` unless a maintainer explicitly sets `OPENAI_IMAGE_MODEL`). MCP Instructions and tool descriptions teach automatic natural-language routing and explicit “使用 image2” routing.
 
 **Tech Stack:** Go, modelcontextprotocol/go-sdk, Bash/PowerShell installers, Markdown documentation, Go unit tests.
 
 ## Global Constraints
 
-- Default model is `gpt-image-2.0`.
+- Default model is `gpt-image-2.0` when `OPENAI_IMAGE_MODEL` is not explicitly set.
 - Image 2.5 maps internally to `gpt-image-2.5-sunburst`; customers never enter a model ID.
 - Fixed default gateway is `https://api.schyler.top`.
 - Installation asks only for `OPENAI_IMAGE_API_KEY`, stores it in local `.env.local`, and does not request elevation.
@@ -159,4 +159,3 @@ Run: `git diff fork/main...HEAD --stat` and `git status --short`; confirm no key
 - [ ] **Step 4: Commit any verification-only fixes**
 
 Only if a test exposes a regression, add the smallest fix and rerun the affected check before committing it.
-
