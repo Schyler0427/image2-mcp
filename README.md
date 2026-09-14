@@ -51,7 +51,7 @@ Key-only 安装无需配置或修改 Base URL；程序默认使用上述网关�
 
 ### 从 GitHub 拉取后安装
 
-推荐使用交互式安装。安装过程中输入的 key 会保存到本地 `.env.local`，
+客户推荐使用 Key-only 安装。安装过程中只输入 API Key，保存到本地 `.env.local`，
 不会写入 Codex 配置，也不会提交到 GitHub。
 
 ### macOS / Linux
@@ -59,7 +59,7 @@ Key-only 安装无需配置或修改 Base URL；程序默认使用上述网关�
 ```bash
 git clone <your-repo-url>
 cd image2-mcp
-./install.sh --interactive --configure-codex
+./install.sh --key-only
 ```
 
 ### Windows PowerShell
@@ -67,7 +67,7 @@ cd image2-mcp
 ```powershell
 git clone <your-repo-url>
 cd image2-mcp
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Interactive -ConfigureCodex
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -KeyOnly
 ```
 
 安装脚本会做这些事：
@@ -85,16 +85,16 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Interactive -ConfigureCo
 macOS / Linux：
 
 ```bash
-./install.sh --interactive --configure-codex --prebuilt
+./install.sh --key-only
 ```
 
 Windows：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Interactive -ConfigureCodex -Prebuilt
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -KeyOnly
 ```
 
-如果只想构建，不想写 Codex 配置：
+维护者如需自定义 URL 或模型，可使用高级交互模式；客户不需要使用该模式：
 
 macOS / Linux：
 
@@ -217,7 +217,7 @@ go build -o .\dist\image2-mcp.exe .\cmd\image2-mcp
 
 ### 发布 GitHub Release
 
-仓库包含 GitHub Actions Release workflow。推送 `v0.3.1` tag 后会自动构建：
+仓库包含 GitHub Actions Release workflow。推送 `v0.3.2` tag 后会自动构建：
 
 ```text
 darwin/arm64
@@ -231,8 +231,8 @@ windows/amd64
 发布方式：
 
 ```bash
-git tag v0.3.1
-git push origin v0.3.1
+git tag v0.3.2
+git push origin v0.3.2
 ```
 
 Release 产物命名：
@@ -478,7 +478,7 @@ GitHub 仓库里不要提交 `dist/`。不同系统需要在本机编译自己�
 检查：
 
 - `OPENAI_IMAGE_API_KEY` 是否正确
-- `OPENAI_IMAGE_BASE_URL` 是否可访问
+- 固定网关是否可访问：`https://api.schyler.top`
 - `image_paths` 是否全部为本地绝对路径，且文件存在
 - `output_dir` 是否是绝对路径
 - 目标保存目录是否有写入权限

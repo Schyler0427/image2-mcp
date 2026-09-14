@@ -241,7 +241,7 @@ function Install-Prebuilt {
   $Arch = Get-ArchName
   $Asset = "image2-mcp_windows_${Arch}.zip"
   $Url = if ($KeyOnly) {
-    "https://github.com/${Repo}/releases/download/v0.3.1/${Asset}"
+    "https://github.com/${Repo}/releases/download/v0.3.2/${Asset}"
   } else {
     "https://github.com/${Repo}/releases/latest/download/${Asset}"
   }

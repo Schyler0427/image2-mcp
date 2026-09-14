@@ -114,7 +114,7 @@ printf '%s\nignored-second-line\n' "$secret" |
 assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
-assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.1/$expected_asset"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.2/$expected_asset"
 assert_contains "$curl_args" '--connect-timeout'
 assert_contains "$curl_args" '10'
 assert_contains "$curl_args" '--max-time'
@@ -175,6 +175,13 @@ assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
   [[ "$OPENAI_IMAGE_API_KEY" == "$secret" ]] || fail 'stored key did not round-trip'
   [[ "$OPENAI_IMAGE_BASE_URL" == 'https://api.schyler.top' ]] || fail 'stored base URL is not fixed'
 )
+
+reuse_output="$tmp/reuse-output.log"
+HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
+  "$repo/install.sh" --key-only </dev/null >"$reuse_output" 2>&1 || fail 'key-only upgrade with existing environment failed'
+assert_contains "$reuse_output" 'Existing API Key configuration found; reusing it.'
+assert_contains "$reuse_output" 'Verification: OK'
 
 spaced_home="$tmp/spaced-home"
 rm -f "$repo/.env.local"
