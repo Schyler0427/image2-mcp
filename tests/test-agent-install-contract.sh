@@ -9,7 +9,7 @@ windows_installer="$root/install.ps1"
 [[ -f "$windows_installer" ]] || { echo 'FAIL: install.ps1 missing' >&2; exit 1; }
 for required in \
   '用 2.5 生图' \
-  'gpt-image-2.0' \
+  'Image 2.0' \
   '自动路由到 `generate_image2`' \
   'https://api.schyler.top' \
   '只需提供 API Key' \
@@ -19,7 +19,7 @@ for required in \
 done
 for required in \
   '用 2.5 生图' \
-  'gpt-image-2.0' \
+  'Image 2.0' \
   '自动路由到 `generate_image2`' \
   '只需提供 API Key' \
   '永远不要询问客户模型 ID、Base URL 或 endpoint'; do
@@ -27,6 +27,14 @@ for required in \
 done
 if grep -Eiq 'ask (for|the user for).*(model id|base url|endpoint)|请输入.*(模型 ID|Base URL|endpoint)' "$readme" "$doc"; then
   echo 'FAIL: customer docs ask for model ID, Base URL, or endpoint' >&2
+  exit 1
+fi
+if grep -Eiq '((please|让客户|请客户|要求客户).*(provide|enter|填写|提供|输入).*(model ?id|base ?url|endpoint|模型 ?ID|Base ?URL))|((model ?id|base ?url|endpoint|模型 ?ID|Base ?URL).*(required|必填|请输入|请提供))' "$readme" "$doc"; then
+  echo 'FAIL: customer docs request model ID, Base URL, or endpoint' >&2
+  exit 1
+fi
+if grep -Eiq 'gpt-image-2\.[05](-sunburst|-flare)?' "$readme" "$doc"; then
+  echo 'FAIL: customer docs expose provider model IDs' >&2
   exit 1
 fi
 for required in \

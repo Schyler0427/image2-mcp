@@ -2,8 +2,8 @@
 
 Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个工具：
 
-- `generate_image2`：调用固定网关的 `gpt-image-2.0` 生图接口
-- `edit_image2`：调用 `gpt-image-2.0` 的图生图编辑接口（支持多图输入和可选蒙版）
+- `generate_image2`：调用固定网关的 Image 2.0 生图接口
+- `edit_image2`：调用 Image 2.0 的图生图编辑接口（支持多图输入和可选蒙版）
 
 两个工具都会把接口返回的 `b64_json` 解码成 PNG 文件并保存到本地。
 
@@ -15,7 +15,7 @@ Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个
 
 首次安装时客户只需输入 API Key；已有安装升级时会自动复用本地 Key，不会重复询问。
 
-默认使用 `gpt-image-2.0`。客户只需提供 API Key，固定网关会根据自然语言自动路由到
+默认使用 Image 2.0。客户只需提供 API Key，固定网关会根据自然语言自动路由到
 `generate_image2`；客户不需要填写模型 ID、Base URL 或 endpoint。需要 2.5 时直接说“用 2.5 生图”。
 
 ## 维护者和高级安装
@@ -132,7 +132,7 @@ OPENAI_IMAGE_BASE_URL="https://api.schyler.top"
 
 API Key 会保存在本地 `.env.local`，不在文档示例中展示。
 
-模型由自然语言版本词自动选择，默认使用 `gpt-image-2.0`；客户不填写模型 ID。
+模型由自然语言版本词自动选择，默认使用 Image 2.0；客户不填写模型 ID。
 
 Codex 配置里不会直接保存 key。启动 MCP 时，runner 脚本会读取本地
 `.env.local`。
@@ -174,8 +174,8 @@ args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\path\\to\\imag
 
 直接描述任务即可，系统会自动路由到 `generate_image2`：
 
-- “帮我生成一张图”使用默认的 `gpt-image-2.0`
-- “使用 image2 生成一张海边日落”使用默认的 `gpt-image-2.0`
+- “帮我生成一张图”使用默认的 Image 2.0
+- “使用 image2 生成一张海边日落”使用默认的 Image 2.0
 - “用 2.5 生图，画一只戴帽子的猫”选择 Image 2.5
 
 客户永远不需要提供模型 ID、Base URL 或 endpoint。除非维护者明确覆盖默认配置，
@@ -351,7 +351,7 @@ C:\Users\you\Desktop\images
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk.png",
-  "model": "gpt-image-2.0",
+  "model": "Image 2.0",
   "size": "1024x1024"
 }
 ```
@@ -422,7 +422,7 @@ output_name  可选，图片文件名；不传则自动生成 image2-时间戳.p
 ```json
 {
   "file_path": "/Users/you/Desktop/images/desk-with-cat.png",
-  "model": "gpt-image-2.0",
+  "model": "Image 2.0",
   "size": "1024x1024"
 }
 ```
