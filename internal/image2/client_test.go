@@ -54,15 +54,15 @@ func TestNewRequiresAPIKey(t *testing.T) {
 	}
 }
 
-func TestGenerateUsesImage25DefaultModel(t *testing.T) {
+func TestGenerateUsesImage20DefaultModel(t *testing.T) {
 	t.Setenv("OPENAI_IMAGE_MODEL", "   ")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		if got := req["model"]; got != "gpt-image-2.5-sunburst" {
-			t.Fatalf("model = %v, want gpt-image-2.5-sunburst", got)
+		if got := req["model"]; got != "gpt-image-2.0" {
+			t.Fatalf("model = %v, want gpt-image-2.0", got)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}},
@@ -78,8 +78,45 @@ func TestGenerateUsesImage25DefaultModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Model != "gpt-image-2.5-sunburst" {
-		t.Fatalf("result model = %q, want gpt-image-2.5-sunburst", result.Model)
+	if result.Model != "gpt-image-2.0" {
+		t.Fatalf("result model = %q, want gpt-image-2.0", result.Model)
+	}
+}
+
+func TestGenerateVersion25(t *testing.T) {
+	t.Setenv("OPENAI_IMAGE_MODEL", "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req["model"] != Image25Model {
+			t.Fatalf("model = %v, want %s", req["model"], Image25Model)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}}})
+	}))
+	defer server.Close()
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Generate(context.Background(), GenerateRequest{Prompt: "hello", Version: "2.5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Model != Image25Model {
+		t.Fatalf("result model = %q, want %s", result.Model, Image25Model)
+	}
+}
+
+func TestRejectsInvalidImageVersion(t *testing.T) {
+	client, err := New("test-key", DefaultBaseURL, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Generate(context.Background(), GenerateRequest{Prompt: "hello", Version: "3.0"})
+	if err == nil || err.Error() != "image version must be 2.0 or 2.5" {
+		t.Fatalf("err = %v, want image version must be 2.0 or 2.5", err)
 	}
 }
 
@@ -146,6 +183,34 @@ func TestEditUsesConfiguredImageModel(t *testing.T) {
 	}
 	if result.Model != "gpt-image-2.5-flare" {
 		t.Fatalf("result model = %q, want gpt-image-2.5-flare", result.Model)
+	}
+}
+
+func TestEditVersion25(t *testing.T) {
+	imagePath := filepath.Join(t.TempDir(), "input.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.FormValue("model"); got != Image25Model {
+			t.Fatalf("model = %q, want %s", got, Image25Model)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}}})
+	}))
+	defer server.Close()
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Edit(context.Background(), EditRequest{Prompt: "edit", Version: "2.5", ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Model != Image25Model {
+		t.Fatalf("result model = %q, want %s", result.Model, Image25Model)
 	}
 }
 

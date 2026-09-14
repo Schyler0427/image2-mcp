@@ -21,7 +21,8 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.schyler.top"
-	DefaultModel   = "gpt-image-2.5-sunburst"
+	DefaultModel   = "gpt-image-2.0"
+	Image25Model   = "gpt-image-2.5-sunburst"
 	DefaultSize    = "1024x1024"
 	DefaultQuality = "auto"
 )
@@ -39,6 +40,7 @@ type Client struct {
 
 type GenerateRequest struct {
 	Prompt     string `json:"prompt"`
+	Version    string `json:"version,omitempty"`
 	Size       string `json:"size,omitempty"`
 	OutputDir  string `json:"output_dir,omitempty"`
 	OutputName string `json:"output_name,omitempty"`
@@ -52,6 +54,7 @@ type GenerateResult struct {
 
 type EditRequest struct {
 	Prompt     string   `json:"prompt"`
+	Version    string   `json:"version,omitempty"`
 	Size       string   `json:"size,omitempty"`
 	Quality    string   `json:"quality,omitempty"`
 	OutputDir  string   `json:"output_dir,omitempty"`
@@ -111,6 +114,19 @@ func configuredModel() string {
 	return model
 }
 
+func resolveRequestedModel(version string, configured string) (string, error) {
+	switch strings.TrimSpace(version) {
+	case "":
+		return configured, nil
+	case "2.0":
+		return DefaultModel, nil
+	case "2.5":
+		return Image25Model, nil
+	default:
+		return "", errors.New("image version must be 2.0 or 2.5")
+	}
+}
+
 func BuildGenerationsEndpoint(baseURL string) string {
 	return buildImagesEndpoint(baseURL, "generations")
 }
@@ -134,6 +150,10 @@ func buildImagesEndpoint(baseURL, operation string) string {
 }
 
 func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateResult, error) {
+	model, err := resolveRequestedModel(input.Version, c.model)
+	if err != nil {
+		return GenerateResult{}, err
+	}
 	prompt := strings.TrimSpace(input.Prompt)
 	if prompt == "" {
 		return GenerateResult{}, errors.New("prompt is required")
@@ -150,7 +170,7 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 	}
 
 	payload := map[string]any{
-		"model":  c.model,
+		"model":  model,
 		"prompt": prompt,
 		"size":   size,
 		"n":      1,
@@ -180,10 +200,14 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return GenerateResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
 	}
-	return saveImageResponse(respBody, size, outputDir, input.OutputName, c.model)
+	return saveImageResponse(respBody, size, outputDir, input.OutputName, model)
 }
 
 func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error) {
+	model, err := resolveRequestedModel(input.Version, c.model)
+	if err != nil {
+		return EditResult{}, err
+	}
 	prompt := strings.TrimSpace(input.Prompt)
 	if prompt == "" {
 		return EditResult{}, errors.New("prompt is required")
@@ -238,7 +262,7 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 		name  string
 		value string
 	}{
-		{name: "model", value: c.model},
+		{name: "model", value: model},
 		{name: "prompt", value: prompt},
 		{name: "size", value: size},
 		{name: "quality", value: quality},
@@ -283,7 +307,7 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return EditResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
 	}
-	return saveImageResponse(respBody, size, outputDir, input.OutputName, c.model)
+	return saveImageResponse(respBody, size, outputDir, input.OutputName, model)
 }
 
 func requireRegularFile(path, kind string) error {
