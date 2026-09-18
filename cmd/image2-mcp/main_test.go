@@ -82,7 +82,18 @@ func TestServerInstructionsAndToolDescriptions(t *testing.T) {
 	for _, tool := range tools.Tools {
 		metadata += "\n" + tool.Description
 	}
-	for _, phrase := range []string{"帮我生成一张图", "使用 image2", "Image 2.0", "用 2.5 生图", "Image 2.5"} {
+	for _, phrase := range []string{
+		"帮我生成一张图",
+		"使用 image2",
+		"Image 2.0",
+		"用 2.5 生图",
+		"Image 2.5",
+		"existing image",
+		"call edit_image2",
+		"Do not use Computer Use",
+		"Preserve the user's task details",
+		"~ paths",
+	} {
 		if !strings.Contains(metadata, phrase) {
 			t.Errorf("metadata missing %q: %q", phrase, metadata)
 		}
