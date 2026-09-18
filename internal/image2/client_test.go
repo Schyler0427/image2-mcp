@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -313,6 +314,114 @@ func TestGenerateRejectsRelativeOutputDir(t *testing.T) {
 	}
 }
 
+func TestGenerateRetries429ThenSucceeds(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":"busy"}`)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Generate(context.Background(), GenerateRequest{Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+}
+
+func TestGenerateRetries503ThenSucceeds(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) < 3 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"temporarily unavailable"}`)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString([]byte("png"))}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Generate(context.Background(), GenerateRequest{Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("attempts = %d, want 3", got)
+	}
+}
+
+func TestGenerateDoesNotRetryBadRequest(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"invalid request"}`)
+	}))
+	defer server.Close()
+
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Generate(context.Background(), GenerateRequest{Prompt: "hello"}); err == nil {
+		t.Fatal("expected bad request error")
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("attempts = %d, want 1", got)
+	}
+}
+
+func TestGenerateReportsFinalRetryError(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Retry-After", "0")
+		w.Header().Set("X-Request-ID", "req-123")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"error":"busy"}`)
+	}))
+	defer server.Close()
+
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Generate(context.Background(), GenerateRequest{Prompt: "hello"})
+	if err == nil {
+		t.Fatal("expected rate limit error")
+	}
+	message := err.Error()
+	for _, want := range []string{"HTTP 429", "3 attempt(s)", "req-123", "retry later"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error = %q, want substring %q", message, want)
+		}
+	}
+	if strings.Contains(message, "test-key") {
+		t.Fatalf("error exposed API key: %q", message)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("attempts = %d, want 3", got)
+	}
+}
+
 func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
 	firstImage := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 	secondImage := []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
@@ -437,6 +546,76 @@ func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
 	}
 	if string(got) != string(firstImage) {
 		t.Fatalf("written bytes = %v, want %v", got, firstImage)
+	}
+}
+
+func TestEditExpandsHomePaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	png := []byte{0x89, 'P', 'N', 'G'}
+	for _, name := range []string{"input.png", "mask.png"} {
+		if err := os.WriteFile(filepath.Join(home, name), png, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		images := r.MultipartForm.File["image[]"]
+		masks := r.MultipartForm.File["mask"]
+		if len(images) != 1 || images[0].Filename != "input.png" {
+			t.Fatalf("image files = %#v", images)
+		}
+		if len(masks) != 1 || masks[0].Filename != "mask.png" {
+			t.Fatalf("mask files = %#v", masks)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(png)}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Edit(context.Background(), EditRequest{
+		Prompt:     "edit",
+		ImagePaths: []string{"~/input.png"},
+		MaskPath:   "~/mask.png",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGenerateExpandsHomeOutputDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	png := []byte{0x89, 'P', 'N', 'G'}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(png)}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Generate(context.Background(), GenerateRequest{
+		Prompt:     "hello",
+		OutputDir:  "~/generated",
+		OutputName: "output.png",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDir := filepath.Join(home, "generated")
+	if got := filepath.Dir(result.FilePath); got != wantDir {
+		t.Fatalf("output dir = %q, want %q", got, wantDir)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,6 +26,8 @@ const (
 	Image25Model   = "gpt-image-2.5-sunburst"
 	DefaultSize    = "1024x1024"
 	DefaultQuality = "auto"
+	maxAttempts    = 3
+	maxRetryAfter  = 10 * time.Second
 )
 
 var safeNameRE = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
@@ -162,10 +165,16 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 	if size == "" {
 		size = DefaultSize
 	}
-	outputDir := strings.TrimSpace(input.OutputDir)
+	explicitOutputDir := strings.TrimSpace(input.OutputDir)
+	outputDir := explicitOutputDir
 	if outputDir == "" {
 		outputDir = c.outputDir
-	} else if !filepath.IsAbs(outputDir) {
+	}
+	outputDir, err = expandPath(outputDir)
+	if err != nil {
+		return GenerateResult{}, err
+	}
+	if explicitOutputDir != "" && !filepath.IsAbs(outputDir) {
 		return GenerateResult{}, errors.New("output_dir must be an absolute path")
 	}
 
@@ -180,25 +189,9 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 		return GenerateResult{}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	respBody, _, _, _, err := c.doImageRequest(ctx, http.MethodPost, c.endpoint, body, "application/json")
 	if err != nil {
 		return GenerateResult{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("request image generation: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("read image response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return GenerateResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
 	}
 	return saveImageResponse(respBody, size, outputDir, input.OutputName, model)
 }
@@ -220,10 +213,16 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 	if quality == "" {
 		quality = DefaultQuality
 	}
-	outputDir := strings.TrimSpace(input.OutputDir)
+	explicitOutputDir := strings.TrimSpace(input.OutputDir)
+	outputDir := explicitOutputDir
 	if outputDir == "" {
 		outputDir = c.outputDir
-	} else if !filepath.IsAbs(outputDir) {
+	}
+	outputDir, err = expandPath(outputDir)
+	if err != nil {
+		return EditResult{}, err
+	}
+	if explicitOutputDir != "" && !filepath.IsAbs(outputDir) {
 		return EditResult{}, errors.New("output_dir must be an absolute path")
 	}
 
@@ -231,6 +230,10 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 	for _, path := range input.ImagePaths {
 		path = strings.TrimSpace(path)
 		if path != "" {
+			path, err = expandPath(path)
+			if err != nil {
+				return EditResult{}, err
+			}
 			imagePaths = append(imagePaths, path)
 		}
 	}
@@ -248,6 +251,10 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 
 	maskPath := strings.TrimSpace(input.MaskPath)
 	if maskPath != "" {
+		maskPath, err = expandPath(maskPath)
+		if err != nil {
+			return EditResult{}, err
+		}
 		if !filepath.IsAbs(maskPath) {
 			return EditResult{}, errors.New("mask_path must be an absolute path")
 		}
@@ -287,27 +294,121 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 		return EditResult{}, fmt.Errorf("finalize multipart image edit: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.editsEndpoint, &body)
+	respBody, _, _, _, err := c.doImageRequest(ctx, http.MethodPost, c.editsEndpoint, body.Bytes(), writer.FormDataContentType())
 	if err != nil {
 		return EditResult{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return EditResult{}, fmt.Errorf("request image edit: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return EditResult{}, fmt.Errorf("read image response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return EditResult{}, fmt.Errorf("image API returned HTTP %d: %s", resp.StatusCode, summarize(respBody))
-	}
 	return saveImageResponse(respBody, size, outputDir, input.OutputName, model)
+}
+
+func (c *Client) doImageRequest(ctx context.Context, method, endpoint string, body []byte, contentType string) ([]byte, http.Header, int, int, error) {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, nil, 0, attempt, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		req.Header.Set("Content-Type", contentType)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, nil, 0, attempt, fmt.Errorf("request image API: %w", err)
+		}
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		headers := resp.Header.Clone()
+		status := resp.StatusCode
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, headers, status, attempt, fmt.Errorf("read image response: %w", readErr)
+		}
+		if status >= 200 && status < 300 {
+			return respBody, headers, status, attempt, nil
+		}
+
+		if attempt < maxAttempts && isRetryableStatus(status) {
+			if err := waitForRetry(ctx, retryDelay(headers, attempt)); err != nil {
+				return nil, headers, status, attempt, fmt.Errorf("image API returned HTTP %d after %d attempt(s): %w", status, attempt, err)
+			}
+			continue
+		}
+		return nil, headers, status, attempt, formatImageAPIError(status, attempt, headers, respBody)
+	}
+
+	return nil, nil, 0, maxAttempts, errors.New("image API request exhausted retry attempts")
+}
+
+func expandPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
+}
+
+func isRetryableStatus(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func retryDelay(headers http.Header, attempt int) time.Duration {
+	if raw := strings.TrimSpace(headers.Get("Retry-After")); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds >= 0 {
+			delay := time.Duration(seconds) * time.Second
+			if delay > maxRetryAfter {
+				return maxRetryAfter
+			}
+			return delay
+		}
+	}
+	return time.Duration(1<<(attempt-1)) * time.Second
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func formatImageAPIError(status, attempts int, headers http.Header, body []byte) error {
+	message := fmt.Sprintf("image API returned HTTP %d after %d attempt(s): %s", status, attempts, summarize(body))
+	if isRetryableStatus(status) {
+		message += "; transient failure, retry later"
+	}
+	if requestID := firstHeader(headers, "X-Request-ID", "Request-ID"); requestID != "" {
+		message += " request_id=" + requestID
+	}
+	if retryAfter := strings.TrimSpace(headers.Get("Retry-After")); retryAfter != "" {
+		message += " retry_after=" + retryAfter
+	}
+	return errors.New(message)
+}
+
+func firstHeader(headers http.Header, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(headers.Get(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func requireRegularFile(path, kind string) error {
