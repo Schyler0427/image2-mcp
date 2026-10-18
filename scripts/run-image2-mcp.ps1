@@ -61,5 +61,5 @@ if (Test-Path $LocalEnv) {
   Import-DotEnv (Join-Path $RepoDir ".env")
 }
 
-& (Join-Path $RepoDir "dist\image2-mcp.exe")
+& (Join-Path $RepoDir "dist\image2-mcp.exe") @args
 exit $LASTEXITCODE

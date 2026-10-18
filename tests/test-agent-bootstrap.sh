@@ -18,7 +18,7 @@ mkdir -p "$fakebin" "$tmp/sources"
 release_json="$tmp/release.json"
 cat >"$release_json" <<'JSON'
 {
-  "tag_name": "v0.3.2",
+  "tag_name": "v0.3.3",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -32,20 +32,6 @@ cat >"$release_json" <<'JSON'
 }
 JSON
 
-release_page="$tmp/release.html"
-cat >"$release_page" <<'HTML'
-<title>Release v0.3.2 · Schyler0427/image2-mcp · GitHub</title>
-HTML
-release_assets_page="$tmp/release-assets.html"
-cat >"$release_assets_page" <<'HTML'
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.2/image2-mcp_darwin_arm64.tar.gz">image2-mcp_darwin_arm64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.2/image2-mcp_darwin_amd64.tar.gz">image2-mcp_darwin_amd64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.2/image2-mcp_linux_arm64.tar.gz">image2-mcp_linux_arm64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.2/image2-mcp_linux_amd64.tar.gz">image2-mcp_linux_amd64.tar.gz</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.2/image2-mcp_windows_arm64.zip">image2-mcp_windows_arm64.zip</a>
-<a href="/Schyler0427/image2-mcp/releases/download/v0.3.2/image2-mcp_windows_amd64.zip">image2-mcp_windows_amd64.zip</a>
-HTML
-
 cat >"$fakebin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -54,31 +40,34 @@ if [[ -n "${BOOTSTRAP_FIXTURE_NETWORK_LOG:-}" ]]; then
 fi
 url=''
 out=''
+write_out=''
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
-    --retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
+    --write-out) write_out="$2"; shift 2 ;;
+    --retry|--retry-delay|--connect-timeout|--max-time|--max-redirs) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
 done
-  case "$url" in
-    https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.2)
-    if [[ "${BOOTSTRAP_FIXTURE_RELEASE_API_FAIL:-0}" == 1 ]]; then
-      exit 22
-    fi
+case "$url" in
+  https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3)
+    status="${BOOTSTRAP_FIXTURE_RELEASE_API_STATUS:-200}"
+    case "$status" in
+      network|timeout)
+        [[ -z "$write_out" ]] || printf '000'
+        printf 'fixture network error or timeout\n' >&2
+        [[ "$status" != timeout ]] || exit 28
+        exit 6
+        ;;
+      *)
+        [[ -z "$write_out" ]] || printf '%s' "$status"
+        [[ "$status" -lt 400 ]] || exit 22
+        ;;
+    esac
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/releases/tag/v0.3.2)
-    if [[ "${BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL:-0}" == 1 ]]; then
-      exit 22
-    fi
-    cp "$BOOTSTRAP_FIXTURE_RELEASE_PAGE" "$out"
-    ;;
-  https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.3.2)
-    cp "$BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE" "$out"
-    ;;
-  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.2.tar.gz)
+  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.tar.gz)
     if [[ -n "${BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER:-}" ]]; then
       : >"$BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER"
     fi
@@ -177,7 +166,7 @@ chmod +x "$fakebin/rm"
 
 make_source_archive() {
   local name="$1" version="$2" mode="${3:-ok}" tree archive
-  tree="$tmp/sources/$name/image2-mcp-0.3.2"
+  tree="$tmp/sources/$name/image2-mcp-0.3.3"
   archive="$tmp/sources/$name.tar.gz"
   mkdir -p "$tree/scripts"
   printf 'module fixture\n' >"$tree/go.mod"
@@ -226,7 +215,7 @@ INSTALL
       rm -f "$tree/scripts/run-image2-mcp.sh"
       ;;
   esac
-  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.3.2
+  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.3.3
   printf '%s\n' "$archive"
 }
 
@@ -235,10 +224,10 @@ make_canonical_duplicate_archive() {
   local archive="$tmp/sources/canonical-duplicate.tar.gz"
   local file_tree="$tmp/sources/canonical-file" directory_tree="$tmp/sources/canonical-directory"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$file_tree/image2-mcp-0.3.2" "$directory_tree/image2-mcp-0.3.2/canonical-path"
-  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.3.2/canonical-path"
-  tar -rf "$plain" -C "$file_tree" image2-mcp-0.3.2/canonical-path
-  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.3.2/canonical-path
+  mkdir -p "$file_tree/image2-mcp-0.3.3" "$directory_tree/image2-mcp-0.3.3/canonical-path"
+  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.3.3/canonical-path"
+  tar -rf "$plain" -C "$file_tree" image2-mcp-0.3.3/canonical-path
+  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.3.3/canonical-path
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -247,9 +236,9 @@ make_repeated_slash_archive() {
   local base_archive="$1" plain="$tmp/sources/repeated-slash.tar"
   local archive="$tmp/sources/repeated-slash.tar.gz" tree="$tmp/sources/repeated-slash"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$tree/image2-mcp-0.3.2/repeated"
-  printf 'repeated slash path\n' >"$tree/image2-mcp-0.3.2/repeated/path.txt"
-  tar -rf "$plain" -C "$tree" image2-mcp-0.3.2//repeated/path.txt
+  mkdir -p "$tree/image2-mcp-0.3.3/repeated"
+  printf 'repeated slash path\n' >"$tree/image2-mcp-0.3.3/repeated/path.txt"
+  tar -rf "$plain" -C "$tree" image2-mcp-0.3.3//repeated/path.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -259,11 +248,11 @@ make_case_ambiguous_archive() {
   local archive="$tmp/sources/case-ambiguous.tar.gz"
   local upper_tree="$tmp/sources/case-upper" lower_tree="$tmp/sources/case-lower"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$upper_tree/image2-mcp-0.3.2" "$lower_tree/image2-mcp-0.3.2"
-  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.3.2/CasePath.txt"
-  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.3.2/casepath.txt"
-  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.3.2/CasePath.txt
-  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.3.2/casepath.txt
+  mkdir -p "$upper_tree/image2-mcp-0.3.3" "$lower_tree/image2-mcp-0.3.3"
+  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.3.3/CasePath.txt"
+  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.3.3/casepath.txt"
+  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.3.3/CasePath.txt
+  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.3.3/casepath.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -362,54 +351,96 @@ canonical_duplicate_archive="$(make_canonical_duplicate_archive "$v1_archive")"
 repeated_slash_archive="$(make_repeated_slash_archive "$v1_archive")"
 case_ambiguous_archive="$(make_case_ambiguous_archive "$v1_archive")"
 
-# The public pages are the fast path. A successful page gate must not spend
-# time on the API, and metadata requests must be single-attempt and bounded.
-page_first_home="$tmp/page-first-home"
-page_first_log="$tmp/page-first.log"
-page_first_network="$tmp/page-first-network.log"
-if ! printf '%s\n' 'fixture-key-redacted' |
-  HOME="$page_first_home" PATH="$fakebin:$PATH" \
-  BOOTSTRAP_FIXTURE_NETWORK_LOG="$page_first_network" \
-  BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
-  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
-  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
-  BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v1_archive" \
-  "$helper" >"$page_first_log" 2>&1; then
-  fail 'page-first bootstrap failed'
-fi
-assert_contains "$page_first_log" 'Checking public Release...'
-assert_contains "$page_first_log" 'Downloading source package...'
-assert_contains "$page_first_log" 'Preparing installation...'
-assert_contains "$page_first_log" 'Installing platform binary...'
-assert_contains "$page_first_log" 'Verifying local installation...'
-assert_not_contains "$page_first_network" 'api.github.com'
-[[ "$(grep -c '/releases/tag/v0.3.2' "$page_first_network")" -eq 1 ]] || fail 'Release page was retried'
-[[ "$(grep -c '/releases/expanded_assets/v0.3.2' "$page_first_network")" -eq 1 ]] || fail 'assets page was retried'
-grep -Fq -- '--connect-timeout 5 --max-time 15' "$page_first_network" || fail 'metadata timeout is not bounded'
-grep -Fq -- '--connect-timeout 10 --max-time 60 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.2.tar.gz' \
-  "$page_first_network" || fail 'source timeout is not bounded'
+# One bounded API request is the entire metadata gate; only the source follows it.
+api_only_home="$tmp/api-only-home"
+api_only_log="$tmp/api-only.log"
+api_only_network="$tmp/api-only-network.log"
+BOOTSTRAP_FIXTURE_NETWORK_LOG="$api_only_network" \
+  run_bootstrap "$api_only_home" "$v1_archive" "$api_only_log" || fail 'API-only bootstrap failed'
+for progress in 'Checking public Release...' 'Downloading source package...' \
+  'Preparing installation...' 'Installing platform binary...' 'Verifying local installation...'; do
+  assert_contains "$api_only_log" "$progress"
+done
+assert_api_request() {
+  local log="$1" expected_count="$2" first
+  [[ "$(wc -l <"$log" | tr -d '[:space:]')" -eq "$expected_count" ]] || fail 'unexpected request count (retry or fallback)'
+  first="$(sed -n '1p' "$log")"
+  [[ "$first" == *'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3'* ]] || fail 'first request was not the fixed Release API'
+  [[ "$first" == *'--connect-timeout 5 --max-time 15'* ]] || fail 'metadata timeout is not bounded'
+  [[ "$first" == '-q '* && "$first" == *'--retry 0'* ]] || fail 'curl configuration can enable automatic retries'
+  [[ "$first" != *'-fL'* && "$first" != *'--location'* ]] || fail 'metadata request can follow redirects'
+  assert_not_contains "$log" '/releases/tag/'
+  assert_not_contains "$log" '/releases/expanded_assets/'
+}
+assert_api_request "$api_only_network" 2
+source_request="$(sed -n '2p' "$api_only_network")"
+[[ "$source_request" == '-q -fL '* && "$source_request" == *'--retry 0'* ]] ||
+  fail 'source download must ignore curlrc retries and preserve GitHub redirects'
+grep -Fq -- '--connect-timeout 10 --max-time 60 --retry 0 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.tar.gz' \
+  "$api_only_network" || fail 'source timeout is not bounded'
 
-# If the public page is unavailable, the helper makes one short API fallback.
-api_fallback_home="$tmp/api-fallback-home"
-api_fallback_log="$tmp/api-fallback.log"
-api_fallback_network="$tmp/api-fallback-network.log"
-if ! printf '%s\n' 'fixture-key-redacted' |
-  HOME="$api_fallback_home" PATH="$fakebin:$PATH" \
-  BOOTSTRAP_FIXTURE_RELEASE_PAGE_FAIL=1 \
-  BOOTSTRAP_FIXTURE_NETWORK_LOG="$api_fallback_network" \
-  BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
-  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
-  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
-  BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v1_archive" \
-  "$helper" >"$api_fallback_log" 2>&1; then
-  fail 'page failure did not recover through the API'
-fi
-assert_contains "$api_fallback_log" 'Verification: OK'
-[[ "$(grep -c '/releases/tag/v0.3.2' "$api_fallback_network")" -eq 1 ]] || fail 'failed Release page was retried'
-[[ "$(grep -c 'api.github.com' "$api_fallback_network")" -eq 1 ]] || fail 'API fallback was not called exactly once'
-if grep -Fq '/releases/expanded_assets/v0.3.2' "$api_fallback_network"; then
-  fail 'assets page was called after Release page failure'
-fi
+# Failures stop before source download, key input, or any existing target/config mutation.
+printf 'customer sentinel\n' >"$api_only_home/.local/share/image2-mcp/customer.txt"
+assert_release_refusal() {
+  local name="$1" json="$2" status="$3" diagnostic="$4" refusal_home log network config_before target_before
+  for refusal_home in "$tmp/refused-$name-home" "$api_only_home"; do
+    log="$tmp/refused-$name-$(basename "$refusal_home").log"
+    network="$log.network"
+    config_before=''
+    target_before=''
+    if [[ "$refusal_home" == "$api_only_home" ]]; then
+      config_before="$(cksum "$refusal_home/.codex/config.toml")"
+      target_before="$(cksum "$refusal_home/.local/share/image2-mcp/version.txt")"
+    fi
+    if printf '%s\n' 'fixture-key-redacted' |
+      HOME="$refusal_home" PATH="$fakebin:$PATH" \
+      BOOTSTRAP_FIXTURE_NETWORK_LOG="$network" \
+      BOOTSTRAP_FIXTURE_RELEASE_API_STATUS="$status" \
+      BOOTSTRAP_FIXTURE_RELEASE_JSON="$json" \
+      BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v2_archive" \
+      "$helper" >"$log" 2>&1; then
+      fail "$name unexpectedly succeeded"
+    fi
+    assert_api_request "$network" 1
+    assert_contains "$log" "$diagnostic"
+    assert_not_contains "$log" 'Downloading source package...'
+    assert_not_contains "$log" 'OPENAI_IMAGE_API_KEY:'
+    assert_not_contains "$log" 'fixture-key-redacted'
+    [[ -z "$(find "$refusal_home/.local/share" -maxdepth 1 -name '.image2-mcp-bootstrap.*' -print)" ]] || fail "$name retained transaction state"
+    [[ -z "$(find_previous_backup "$refusal_home/.local/share")" ]] || fail "$name moved the existing target"
+    if [[ "$refusal_home" == "$api_only_home" ]]; then
+      [[ "$(cksum "$refusal_home/.codex/config.toml")" == "$config_before" ]] || fail "$name changed config"
+      [[ "$(cksum "$refusal_home/.local/share/image2-mcp/version.txt")" == "$target_before" ]] || fail "$name changed target"
+      assert_contains "$refusal_home/.local/share/image2-mcp/customer.txt" 'customer sentinel'
+    else
+      [[ ! -e "$refusal_home/.local/share/image2-mcp" && ! -e "$refusal_home/.codex/config.toml" ]] || fail "$name created target or config"
+    fi
+  done
+}
+for status in 403 429 404 302; do
+  assert_release_refusal "http-$status" "$release_json" "$status" "HTTP $status"
+done
+for status in network timeout; do
+  assert_release_refusal "$status" "$release_json" "$status" 'GitHub Release API request failed'
+done
+for field in draft prerelease; do
+  invalid_json="$tmp/release-$field.json"
+  sed "s/\"$field\": false/\"$field\": true/" "$release_json" >"$invalid_json"
+  assert_release_refusal "$field" "$invalid_json" 200 'Release gate failed'
+done
+invalid_json="$tmp/release-wrong-tag.json"
+sed 's/"tag_name": "v0.3.3"/"tag_name": "wrong-tag"/' "$release_json" >"$invalid_json"
+assert_release_refusal wrong-tag "$invalid_json" 200 'Release gate failed'
+invalid_json="$tmp/release-malformed.json"
+printf '{invalid JSON\n' >"$invalid_json"
+assert_release_refusal malformed "$invalid_json" 200 'Release gate failed'
+for asset in image2-mcp_darwin_arm64.tar.gz image2-mcp_darwin_amd64.tar.gz \
+  image2-mcp_linux_arm64.tar.gz image2-mcp_linux_amd64.tar.gz \
+  image2-mcp_windows_arm64.zip image2-mcp_windows_amd64.zip; do
+  invalid_json="$tmp/release-missing-$asset.json"
+  sed "s/$asset/missing-asset/" "$release_json" >"$invalid_json"
+  assert_release_refusal "missing-$asset" "$invalid_json" 200 "missing required asset: $asset"
+done
 
 # Release validation has a POSIX-tool fallback when Python and jq are absent.
 json_tools="$tmp/json-tools"
@@ -420,44 +451,79 @@ ln -s "$(command -v tr)" "$json_tools/tr"
 shell_bin="$(command -v bash)"
 PATH="$json_tools" "$shell_bin" -c 'source "$1"; txn="$2"; validate_release_json "$3"' \
   bash "$helper" "$tmp/json-txn" "$release_json" || fail 'JSON validation fallback failed without Python or jq'
-draft_release_json="$tmp/release-draft.json"
-sed 's/"draft": false/"draft": true/' "$release_json" >"$draft_release_json"
-if PATH="$json_tools" "$shell_bin" -c 'source "$1"; txn="$2"; validate_release_json "$3"' \
-  bash "$helper" "$tmp/json-txn" "$draft_release_json" >/dev/null 2>&1; then
-  fail 'JSON validation fallback accepted a draft Release'
-fi
+for parser in posix jq; do
+  if [[ "$parser" == jq ]]; then
+    if ! command -v jq >/dev/null 2>&1; then
+      continue
+    fi
+    ln -s "$(command -v jq)" "$json_tools/jq"
+    PATH="$json_tools" "$shell_bin" -c 'source "$1"; validate_release_json "$2"' \
+      bash "$helper" "$release_json" || fail 'jq rejected valid Release metadata'
+  fi
+  for invalid_json in "$tmp/release-draft.json" "$tmp/release-prerelease.json" \
+    "$tmp/release-wrong-tag.json" "$tmp/release-malformed.json" "$tmp"/release-missing-*.json; do
+    if PATH="$json_tools" "$shell_bin" -c \
+      'source "$1"; txn="$2"; if validate_release_json "$3"; then exit 0; else exit 1; fi' \
+      bash "$helper" "$tmp/json-txn" "$invalid_json" >"$tmp/parser-refusal.log" 2>&1; then
+      fail "$parser JSON validator accepted invalid metadata inside the Release gate: $invalid_json"
+    fi
+  done
+done
 
-# A blocked or rate-limited API can fall back to the public Release pages
-# without weakening the exact tag, publication, or six-asset checks.
-invalid_release_json="$tmp/release-invalid.json"
-printf '{}\n' >"$invalid_release_json"
-mkdir -p "$tmp/page-txn"
-PATH="$fakebin:$PATH" \
-  BOOTSTRAP_FIXTURE_RELEASE_API_FAIL=1 \
-  BOOTSTRAP_FIXTURE_RELEASE_JSON="$invalid_release_json" \
-  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
-  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
-  "$shell_bin" -c 'source "$1"; txn="$2"; validate_release_gate "$3"' \
-  bash "$helper" "$tmp/page-txn" "$invalid_release_json" ||
-  fail 'public Release page fallback failed'
-
-# The main bootstrap must also fall back when the API download itself returns
-# an HTTP failure; validating an already-downloaded invalid JSON is not enough.
-api_failure_home="$tmp/api-failure-home"
-if ! printf '%s\n' 'fixture-key-redacted' |
-  HOME="$api_failure_home" PATH="$fakebin:$PATH" \
-  BOOTSTRAP_FIXTURE_RELEASE_API_FAIL=1 \
-  BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
-  BOOTSTRAP_FIXTURE_RELEASE_PAGE="$release_page" \
-  BOOTSTRAP_FIXTURE_RELEASE_ASSETS_PAGE="$release_assets_page" \
-  BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v1_archive" \
-  "$helper" >"$tmp/api-failure.log" 2>&1; then
-  fail 'API download failure did not recover through the public Release pages'
-fi
-assert_contains "$tmp/api-failure.log" 'Verification: OK'
-assert_not_contains "$tmp/api-failure.log" 'fixture-key-redacted'
-[[ -f "$api_failure_home/.local/share/image2-mcp/dist/image2-mcp" ]] ||
-  fail 'API download fallback did not complete installation'
+# The wget transport also makes one request, disallows redirects, and has a
+# total deadline in addition to its per-operation timeouts. All traffic is fake.
+wget_tools="$tmp/wget-tools"
+mkdir -p "$wget_tools"
+for tool in bash awk sleep cp; do
+  ln -s "$(command -v "$tool")" "$wget_tools/$tool"
+done
+cat >"$wget_tools/wget" <<'WGET'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$BOOTSTRAP_FIXTURE_NETWORK_LOG"
+out=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -O) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+status="${BOOTSTRAP_FIXTURE_RELEASE_API_STATUS:-200}"
+case "$status" in
+  network) exit 4 ;;
+  timeout) exec sleep 60 ;;
+esac
+printf '  HTTP/1.1 %s fixture\n' "$status" >&2
+[[ "$status" == 200 ]] || exit 8
+cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
+WGET
+chmod +x "$wget_tools/wget"
+for status in 200 403 429 302 network timeout; do
+  wget_network="$tmp/wget-$status.network"
+  wget_output="$tmp/wget-$status.log"
+  wget_started=$SECONDS
+  if PATH="$wget_tools" BOOTSTRAP_FIXTURE_RELEASE_API_STATUS="$status" \
+    BOOTSTRAP_FIXTURE_NETWORK_LOG="$wget_network" BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+    "$shell_bin" -c 'source "$1"; download_metadata "$readonly_release_api" "$2"' \
+    bash "$helper" "$tmp/wget-release.json" >"$wget_output" 2>&1; then
+    [[ "$status" == 200 ]] || fail "wget accepted $status"
+  else
+    [[ "$status" != 200 ]] || fail 'wget metadata download failed'
+    case "$status" in
+      network|timeout) assert_contains "$wget_output" 'GitHub Release API request failed' ;;
+      *) assert_contains "$wget_output" "HTTP $status" ;;
+    esac
+  fi
+  [[ "$(wc -l <"$wget_network" | tr -d '[:space:]')" -eq 1 ]] || fail 'wget retried or fell back'
+  grep -Fq -- '--tries=1 --timeout=15 --connect-timeout=5 --dns-timeout=5 --max-redirect=0' \
+    "$wget_network" || fail 'wget metadata request was not bounded'
+  if [[ "$status" == timeout ]]; then
+    wget_elapsed=$((SECONDS - wget_started))
+    [[ "$wget_elapsed" -ge 14 && "$wget_elapsed" -le 20 ]] || fail "wget deadline took ${wget_elapsed}s instead of 15s"
+  else
+    [[ "$((SECONDS - wget_started))" -le 5 ]] || fail 'wget waited for the deadline after completing'
+  fi
+done
 
 # Case-ambiguous archives are rejected before first-install target mutation.
 case_ambiguous_home="$tmp/case-ambiguous-home"

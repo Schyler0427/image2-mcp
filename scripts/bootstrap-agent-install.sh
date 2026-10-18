@@ -3,11 +3,9 @@ set -euo pipefail
 
 readonly_repo_url='https://github.com/Schyler0427/image2-mcp.git'
 readonly_repo_slug='Schyler0427/image2-mcp'
-readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.2'
-readonly_release_page='https://github.com/Schyler0427/image2-mcp/releases/tag/v0.3.2'
-readonly_release_assets_page='https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.3.2'
-readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.2.tar.gz'
-readonly_source_root='image2-mcp-0.3.2'
+readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3'
+readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.tar.gz'
+readonly_source_root='image2-mcp-0.3.3'
 readonly_base_url='https://api.schyler.top'
 
 txn=''
@@ -48,20 +46,51 @@ arch_name() {
 }
 
 download_metadata() {
-  local url="$1" output="$2"
+  local url="$1" output="$2" status='' downloaded=0
   if command -v curl >/dev/null 2>&1; then
-    curl -fL -sS --connect-timeout 5 --max-time 15 "$url" -o "$output"
+    # Ignore curlrc retries/redirects: this gate makes exactly one API request.
+    if status="$(curl -q -f -sS --connect-timeout 5 --max-time 15 --retry 0 \
+      --write-out '%{http_code}' "$url" -o "$output")"; then
+      downloaded=1
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    wget --tries=1 --timeout=15 -O "$output" "$url"
+    # Wget's timeouts are per operation; also bound the whole request to 15s.
+    if (
+      wget --tries=1 --timeout=15 --connect-timeout=5 --dns-timeout=5 \
+        --max-redirect=0 --server-response -O "$output" "$url" 2>"$output.http" &
+      request_pid=$!
+      (
+        sleeper=''
+        trap 'kill "$sleeper" 2>/dev/null || true; exit' TERM
+        sleep 15 &
+        sleeper=$!
+        wait "$sleeper"
+        kill "$request_pid" 2>/dev/null || true
+      ) </dev/null >/dev/null 2>&1 &
+      deadline_pid=$!
+      trap 'kill "$request_pid" "$deadline_pid" 2>/dev/null || true; wait "$deadline_pid" 2>/dev/null || true' EXIT
+      trap 'exit 1' HUP INT TERM
+      wait "$request_pid"
+    ); then
+      downloaded=1
+    fi
+    status="$(awk '/^  HTTP\// { code=$2 } END { print code }' "$output.http")"
   else
     fail 'curl or wget is required'
+    return 1
   fi
+  [[ "$downloaded" -eq 1 && "$status" == 200 ]] && return 0
+  case "$status" in
+    403|429) fail "GitHub Release API returned HTTP $status (access denied or rate limited); retry manually later" ;;
+    ''|000|200) fail 'GitHub Release API request failed (network error or timeout); check connectivity and retry manually' ;;
+    *) fail "GitHub Release API returned HTTP $status; no retry or alternate endpoint was attempted" ;;
+  esac
 }
 
 download_source() {
   local url="$1" output="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fL -sS --connect-timeout 10 --max-time 60 "$url" -o "$output"
+    curl -q -fL -sS --connect-timeout 10 --max-time 60 --retry 0 "$url" -o "$output"
   elif command -v wget >/dev/null 2>&1; then
     wget --tries=1 --timeout=60 -O "$output" "$url"
   else
@@ -70,7 +99,7 @@ download_source() {
 }
 
 validate_release_json() {
-  local json_file="$1"
+  local json_file="$1" asset
   if command -v python3 >/dev/null 2>&1; then
     python3 - "$json_file" <<'PY'
 import json
@@ -88,59 +117,48 @@ expected = {
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     release = json.load(handle)
 assets = {item.get("name") for item in release.get("assets", []) if isinstance(item, dict)}
-if release.get("tag_name") != "v0.3.2" or release.get("draft") is not False or release.get("prerelease") is not False:
+if release.get("tag_name") != "v0.3.3" or release.get("draft") is not False or release.get("prerelease") is not False:
     raise SystemExit(1)
 if not expected.issubset(assets):
-    raise SystemExit(1)
+    raise SystemExit("public v0.3.3 Release is missing required asset: " + ", ".join(sorted(expected - assets)))
 PY
     return
   fi
   if command -v jq >/dev/null 2>&1; then
     jq -e '
-      .tag_name == "v0.3.2" and
+      .tag_name == "v0.3.3" and
       .draft == false and
       .prerelease == false and
-      ([.assets[].name] | contains([
+      ([
         "image2-mcp_darwin_arm64.tar.gz",
         "image2-mcp_darwin_amd64.tar.gz",
         "image2-mcp_linux_arm64.tar.gz",
         "image2-mcp_linux_amd64.tar.gz",
         "image2-mcp_windows_arm64.zip",
         "image2-mcp_windows_amd64.zip"
-      ]))
+      ] - [.assets[].name] |
+        if length == 0 then true
+        else error("public v0.3.3 Release is missing required asset: " + join(", "))
+        end)
     ' "$json_file" >/dev/null
     return
   fi
-  local compact asset json_text
+  local compact json_text
   compact="$txn/release.json.compact"
-  json_text="$(tr -d '[:space:]' <"$json_file")" || fail 'public Release JSON could not be read'
-  printf '%s' "$json_text" >"$compact"
-  [[ -n "$json_text" ]] || fail 'public Release JSON is empty'
-  [[ "${json_text#\{}" != "$json_text" && "${json_text%\}}" != "$json_text" ]] ||
-    fail 'public Release JSON is not an object'
-  grep -Fq '"tag_name":"v0.3.2"' "$compact" || fail 'public Release tag is not v0.3.2'
-  grep -Fq '"draft":false' "$compact" || fail 'public v0.3.2 Release is a draft'
-  grep -Fq '"prerelease":false' "$compact" || fail 'public v0.3.2 Release is a prerelease'
-  for asset in \
-    'image2-mcp_darwin_arm64.tar.gz' \
-    'image2-mcp_darwin_amd64.tar.gz' \
-    'image2-mcp_linux_arm64.tar.gz' \
-    'image2-mcp_linux_amd64.tar.gz' \
-    'image2-mcp_windows_arm64.zip' \
-    'image2-mcp_windows_amd64.zip'; do
-    grep -Fq "\"name\":\"$asset\"" "$compact" ||
-      fail "public v0.3.2 Release is missing required asset: $asset"
-  done
-}
-
-validate_release_page() {
-  local page_file="$txn/release.html" assets_file="$txn/release-assets.html" asset
-  download_metadata "$readonly_release_page" "$page_file" || return 1
-  grep -Fq '<title>Release v0.3.2 · Schyler0427/image2-mcp · GitHub</title>' "$page_file" || return 1
-  if grep -Eiq '>Pre-release<' "$page_file"; then
+  json_text="$(tr -d '[:space:]' <"$json_file")" || {
+    fail 'public Release JSON could not be read'
     return 1
-  fi
-  download_metadata "$readonly_release_assets_page" "$assets_file" || return 1
+  }
+  printf '%s' "$json_text" >"$compact" || return 1
+  [[ -n "$json_text" ]] || { fail 'public Release JSON is empty'; return 1; }
+  [[ "${json_text#\{}" != "$json_text" && "${json_text%\}}" != "$json_text" ]] || {
+    fail 'public Release JSON is not an object'
+    return 1
+  }
+  # This function runs in a conditional gate, where Bash disables errexit.
+  grep -Fq '"tag_name":"v0.3.3"' "$compact" || { fail 'public Release tag is not v0.3.3'; return 1; }
+  grep -Fq '"draft":false' "$compact" || { fail 'public v0.3.3 Release is a draft'; return 1; }
+  grep -Fq '"prerelease":false' "$compact" || { fail 'public v0.3.3 Release is a prerelease'; return 1; }
   for asset in \
     'image2-mcp_darwin_arm64.tar.gz' \
     'image2-mcp_darwin_amd64.tar.gz' \
@@ -148,21 +166,17 @@ validate_release_page() {
     'image2-mcp_linux_amd64.tar.gz' \
     'image2-mcp_windows_arm64.zip' \
     'image2-mcp_windows_amd64.zip'; do
-    grep -Fq "/releases/download/v0.3.2/$asset" "$assets_file" || return 1
+    grep -Fq "\"name\":\"$asset\"" "$compact" || {
+      fail "public v0.3.3 Release is missing required asset: $asset"
+      return 1
+    }
   done
-}
-
-validate_release_api() {
-  local json_file="$txn/release.json"
-  download_metadata "$readonly_release_api" "$json_file" || return 1
-  validate_release_json "$json_file"
 }
 
 validate_release_gate() {
-  if validate_release_page; then
-    return 0
-  fi
-  validate_release_api
+  local json_file="$txn/release.json"
+  download_metadata "$readonly_release_api" "$json_file" || return 1
+  validate_release_json "$json_file"
 }
 
 validate_existing_target() {
@@ -425,7 +439,7 @@ main() {
 
   printf 'Checking public Release...\n'
   validate_release_gate ||
-    fail 'public v0.3.2 Release gate failed; public pages and GitHub API did not pass'
+    fail 'public v0.3.3 Release gate failed; GitHub API must confirm the published tag and all six required assets'
 
   if [[ -e "$target" || -L "$target" ]]; then
     validate_existing_target

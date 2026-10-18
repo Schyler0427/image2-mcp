@@ -5,20 +5,29 @@ Follow this procedure to completion. Do not request any customer value except
 command argument, shell variable, environment variable, temporary file, or
 diagnostic, or expose any partial or derived form of it.
 
+Run the helper once. If any download, Release gate, installation, or verification
+fails, stop and report the failing stage and its error. Do not retry the helper,
+probe alternate GitHub pages or mirrors, reinstall dependencies, change the
+network configuration, or launch a second installer automatically. Continue
+only after the customer asks to retry or the reported cause has been resolved.
+
 ## Fixed contract
 
 - Repository: `https://github.com/Schyler0427/image2-mcp`
 - Repository identity: `Schyler0427/image2-mcp`
 - Base URL: `https://api.schyler.top`
-- Release: public `v0.3.2`
+- Release: public `v0.3.3`
 - Release gate:
-  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.2`
+  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3`
 - macOS/Linux target: `$HOME/.local/share/image2-mcp`
 - Windows target: `%LOCALAPPDATA%\image2-mcp`
 - Managed marker: `.image2-mcp-managed`
 - Image version: default Image 2.0; the customer-facing terms are Image 2.0
   and Image 2.5. Natural-language requests such as “帮我生成一张图”,
   “使用 image2 生成”, and “用 2.5 生图”会由 Agent 调用 `generate_image2`，并使用请求的版本。
+- For Image 2.5, pass `version: "2.5"` to `generate_image2` or `edit_image2`.
+  Do not switch to Image 2.0 after an error or repeat an image call automatically;
+  the tools already retry temporary API failures internally.
 - 客户只需提供 API Key。The fixed gateway is
   `https://api.schyler.top`; a model ID, Base URL, or endpoint is never requested
   from the customer. Only a maintainer may override the default model.
@@ -66,7 +75,7 @@ created temporary file:
 
 `https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/scripts/bootstrap-agent-install.sh`
 
-Use `curl -fL --connect-timeout 10 --max-time 60 URL -o FILE`, or use
+Use `curl -q -fL --retry 0 --connect-timeout 10 --max-time 60 URL -o FILE`, or use
 `wget --tries=1 --timeout=60 -O FILE URL` only when curl is unavailable. Do
 not retry the helper download. Start the downloaded
 `scripts/bootstrap-agent-install.sh` with Bash and no arguments, following the
@@ -102,13 +111,18 @@ Windows. Do not invoke either installer separately.
 The repository-owned helper is the only implementation of the bootstrap
 transaction. It owns all of these requirements:
 
-- enforce the fixed public `v0.3.2` gate and all six exact assets;
+- enforce the fixed public `v0.3.3` gate and all six exact assets;
+- make exactly one bounded Release API request; fail on rate limits or network
+  errors without probing the Release HTML or expanded-assets pages;
 - enforce the fixed platform and architecture, fixed target, exact Git origin
   or byte-exact `.image2-mcp-managed` identity, and validated source archive;
 - reject traversal, links, reparse points, duplicates, case ambiguity, and
   file/directory prefix collisions before target mutation;
 - stage the source, snapshot the Codex config, perform transactional target
   replacement, invoke the key-only installer, and verify local files/config;
+- configure a 20-second MCP startup timeout and a 600-second tool timeout, and
+  require a local MCP initialize/tools-list handshake with the installed version
+  and both image tools before reporting success;
 - on failure, restore the complete prior target and Codex config, or retain and
   report all transaction evidence when automatic recovery is incomplete;
 - on a successful repeat, keep the complete prior target in a unique sibling

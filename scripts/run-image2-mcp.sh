@@ -15,4 +15,4 @@ elif [[ -f "${repo_dir}/.env" ]]; then
   set +a
 fi
 
-exec "${repo_dir}/dist/image2-mcp"
+exec "${repo_dir}/dist/image2-mcp" "$@"

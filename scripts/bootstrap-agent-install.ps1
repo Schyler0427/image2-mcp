@@ -42,14 +42,14 @@ function Assert-AgentBootstrapPlainDirectory([string]$Path, [string]$Description
 }
 
 function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
-  if ($null -eq $Release -or $Release.tag_name -cne "v0.3.2") {
+  if ($null -eq $Release -or $Release.tag_name -cne "v0.3.3") {
     throw "public Release gate returned the wrong tag"
   }
   if ($Release.draft -isnot [bool] -or $Release.draft) {
-    throw "public v0.3.2 Release must not be a draft"
+    throw "public v0.3.3 Release must not be a draft"
   }
   if ($Release.prerelease -isnot [bool] -or $Release.prerelease) {
-    throw "public v0.3.2 Release must not be a prerelease"
+    throw "public v0.3.3 Release must not be a prerelease"
   }
 
   $AssetNames = @()
@@ -60,36 +60,63 @@ function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
   }
   foreach ($Name in $RequiredAssets) {
     if (-not ($AssetNames -ccontains $Name)) {
-      throw "public v0.3.2 Release is missing required asset: $Name"
+      throw "public v0.3.3 Release is missing required asset: $Name"
     }
   }
 }
 
-function Assert-AgentBootstrapReleasePage(
-  [string]$PageContent,
-  [string]$AssetsContent,
-  [string[]]$RequiredAssets
-) {
-  $ExpectedTitle = '<title>Release v0.3.2 ' + [char]0x00B7 + ' Schyler0427/image2-mcp ' + [char]0x00B7 + ' GitHub</title>'
-  if ([string]::IsNullOrEmpty($PageContent) -or
-      -not $PageContent.Contains($ExpectedTitle)) {
-    throw "public Release page returned the wrong tag"
-  }
-  if ([regex]::IsMatch($PageContent, '(?i)>Pre-release<')) {
-    throw "public v0.3.2 Release must not be a prerelease"
-  }
-  if ([string]::IsNullOrEmpty($AssetsContent)) {
-    throw "public Release asset page was empty"
-  }
-  foreach ($Name in $RequiredAssets) {
-    if (-not $AssetsContent.Contains("/releases/download/v0.3.2/$Name")) {
-      throw "public v0.3.2 Release is missing required asset: $Name"
-    }
-  }
+function New-AgentBootstrapMetadataRequest([string]$Uri) {
+  return [Net.WebRequest]::Create($Uri)
 }
 
 function Invoke-AgentBootstrapMetadata([string]$Uri) {
-  return Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 -Uri $Uri
+  # PS 5.1 has no separate Invoke-WebRequest connect timeout. Bound the wait
+  # through response headers to 5s, then allow only the remainder of 15s to read.
+  $Request = New-AgentBootstrapMetadataRequest $Uri
+  $Request.Method = "GET"
+  $Request.AllowAutoRedirect = $false
+  $Request.Timeout = 5000
+  $Request.ReadWriteTimeout = 15000
+  $Request.UserAgent = "image2-mcp-bootstrap"
+  $Request.Accept = "application/vnd.github+json"
+  $Timer = [Diagnostics.Stopwatch]::StartNew()
+  $Response = $null
+  $Reader = $null
+  try {
+    $Pending = $Request.GetResponseAsync()
+    if (-not $Pending.Wait(5000)) {
+      throw "connection or response headers timed out after 5s"
+    }
+    $Response = $Pending.GetAwaiter().GetResult()
+    if ([int]$Response.StatusCode -ne 200) {
+      throw "HTTP $([int]$Response.StatusCode)"
+    }
+    $Reader = New-Object IO.StreamReader($Response.GetResponseStream())
+    $Body = $Reader.ReadToEndAsync()
+    $Remaining = [Math]::Max(0, 15000 - [int]$Timer.ElapsedMilliseconds)
+    if (-not $Body.Wait($Remaining)) {
+      throw "request timed out after 15s"
+    }
+    return ($Body.GetAwaiter().GetResult() | ConvertFrom-Json)
+  } catch {
+    $Failure = $_.Exception.GetBaseException()
+    if ($Failure -is [Net.WebException] -and $null -ne $Failure.Response) {
+      $Response = $Failure.Response
+    }
+    if ($null -ne $Response -and [int]$Response.StatusCode -ne 200) {
+      $Status = [int]$Response.StatusCode
+      if ($Status -eq 403 -or $Status -eq 429) {
+        throw "GitHub Release API returned HTTP $Status (access denied or rate limited); retry manually later"
+      }
+      throw "GitHub Release API returned HTTP $Status; no retry or alternate endpoint was attempted"
+    }
+    throw "GitHub Release API request failed: $($Failure.Message)"
+  } finally {
+    $Request.Abort()
+    if ($null -ne $Reader) { $Reader.Dispose() }
+    if ($null -ne $Response) { $Response.Close() }
+    $Timer.Stop()
+  }
 }
 
 function Assert-AgentBootstrapExistingTarget(
@@ -511,11 +538,9 @@ function Invoke-AgentBootstrap {
   $ErrorActionPreference = "Stop"
   $RepositoryUrl = "https://github.com/Schyler0427/image2-mcp.git"
   $RepositorySlug = "Schyler0427/image2-mcp"
-  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.2"
-  $ReleasePageUrl = "https://github.com/Schyler0427/image2-mcp/releases/tag/v0.3.2"
-  $ReleaseAssetsPageUrl = "https://github.com/Schyler0427/image2-mcp/releases/expanded_assets/v0.3.2"
-  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.2.zip"
-  $SourceRoot = "image2-mcp-0.3.2"
+  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3"
+  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.zip"
+  $SourceRoot = "image2-mcp-0.3.3"
   $BaseUrl = "https://api.schyler.top"
   $RequiredAssets = @(
     "image2-mcp_darwin_arm64.tar.gz",
@@ -563,16 +588,10 @@ function Invoke-AgentBootstrap {
     Enable-Image2Tls12
     Write-Host "Checking public Release..."
     try {
-      $ReleasePage = Invoke-AgentBootstrapMetadata $ReleasePageUrl
-      $ReleaseAssetsPage = Invoke-AgentBootstrapMetadata $ReleaseAssetsPageUrl
-      Assert-AgentBootstrapReleasePage $ReleasePage.Content $ReleaseAssetsPage.Content $RequiredAssets
+      $Release = Invoke-AgentBootstrapMetadata $ReleaseApi
+      Assert-AgentBootstrapRelease $Release $RequiredAssets
     } catch {
-      try {
-        $Release = Invoke-RestMethod -UseBasicParsing -TimeoutSec 15 -Uri $ReleaseApi
-        Assert-AgentBootstrapRelease $Release $RequiredAssets
-      } catch {
-        throw "public v0.3.2 Release gate failed; public pages and GitHub API did not pass"
-      }
+      throw "public v0.3.3 Release gate failed: $($_.Exception.Message)"
     }
 
     $ExistingTarget = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue

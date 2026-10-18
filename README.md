@@ -2,8 +2,8 @@
 
 Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个工具：
 
-- `generate_image2`：调用固定网关的 Image 2.0 生图接口
-- `edit_image2`：调用 Image 2.0 的图生图编辑接口（支持多图输入和可选蒙版）
+- `generate_image2`：调用固定网关的 Image 2.0 / Image 2.5 生图接口
+- `edit_image2`：图生图编辑（支持 Image 2.0 / Image 2.5、多图输入和可选蒙版）
 
 两个工具都会把接口返回的 `b64_json` 解码成 PNG 文件并保存到本地。
 
@@ -14,6 +14,8 @@ Image2 MCP 是一个给 Codex 使用的本地 STDIO MCP 服务。它提供两个
 ```
 
 首次安装时客户只需输入 API Key；已有安装升级时会自动复用本地 Key，不会重复询问。
+安装失败时会报告失败阶段，不会自动反复安装或切换下载地址。Release 检查只请求一次 API。
+安装成功必须通过本地 MCP 握手、版本和两个工具的检查，验证过程不会调用生图接口。
 
 默认使用 Image 2.0。客户只需提供 API Key，Agent 会根据自然语言自动调用
 `generate_image2`；客户不需要填写模型 ID、Base URL 或 endpoint。需要 2.5 时直接说“用 2.5 生图”。
@@ -74,9 +76,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -KeyOnly
 
 1. 仅交互式输入 `OPENAI_IMAGE_API_KEY`
 2. 写入本地 `.env.local`
-3. 如果本机有 Go，执行 `go test ./...` 并编译 MCP 服务到 `dist/`
-4. 如果本机没有 Go，从 GitHub Releases 下载预编译二进制到 `dist/`
-5. 写入 Codex MCP 配置
+3. Key-only 模式直接下载固定 Release 的预编译二进制，不安装 Go，也不运行源码测试
+4. 写入 Codex MCP 配置，启动超时为 20 秒，工具执行超时为 600 秒
+5. 检查实际 MCP 握手、版本和工具列表，通过后输出 `Verification: OK`
 
 `.env.local`、`dist/`、`output/` 都已加入 `.gitignore`，不要提交到 GitHub。
 
@@ -158,6 +160,8 @@ macOS / Linux 写入示例：
 ```toml
 [mcp_servers.image2]
 command = "/path/to/image2-mcp/scripts/run-image2-mcp.sh"
+startup_timeout_sec = 20
+tool_timeout_sec = 600
 ```
 
 Windows 写入示例：
@@ -166,6 +170,8 @@ Windows 写入示例：
 [mcp_servers.image2]
 command = "powershell.exe"
 args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\path\\to\\image2-mcp\\scripts\\run-image2-mcp.ps1"]
+startup_timeout_sec = 20
+tool_timeout_sec = 600
 ```
 
 安装完成后，重启 Codex 或开启新会话，让 Codex 重新加载 MCP 配置。
@@ -217,7 +223,7 @@ go build -o .\dist\image2-mcp.exe .\cmd\image2-mcp
 
 ### 发布 GitHub Release
 
-仓库包含 GitHub Actions Release workflow。推送 `v0.3.2` tag 后会自动构建：
+仓库包含 GitHub Actions Release workflow。推送 `v*` tag 后会核对服务版本并自动构建：
 
 ```text
 darwin/arm64
@@ -231,8 +237,8 @@ windows/amd64
 发布方式：
 
 ```bash
-git tag v0.3.2
-git push origin v0.3.2
+git tag v0.3.3
+git push origin v0.3.3
 ```
 
 Release 产物命名：
@@ -323,6 +329,7 @@ generate_image2
 
 ```text
 prompt       必填，生图提示词
+version      可选；省略使用默认版本，使用 Image 2.5 时传字符串 "2.5"
 size         可选，默认 1024x1024
 output_dir   可选，图片保存目录；如果传入，必须是绝对路径
 output_name  可选，图片文件名；不传则自动生成 image2-时间戳.png
@@ -332,7 +339,8 @@ output_name  可选，图片文件名；不传则自动生成 image2-时间戳.p
 
 - 不传：保存到默认目录 `output/imagegen/`
 - 传绝对路径：保存到该目录
-- 传相对路径：直接报错，不会调用生图接口
+- 支持 `~/` 开头的用户目录路径
+- 传其他相对路径：直接报错，不会调用生图接口
 
 macOS 绝对路径示例：
 
@@ -395,6 +403,7 @@ Content-Type: multipart/form-data
 
 ```text
 prompt       必填，编辑提示词
+version      可选；省略使用默认版本，使用 Image 2.5 时传字符串 "2.5"
 image_paths  必填，源图片绝对路径列表，至少一个
 size         可选，默认 1024x1024
 quality      可选，默认 auto
@@ -406,7 +415,7 @@ output_name  可选，图片文件名；不传则自动生成 image2-时间戳.p
 `image_paths` 规则：
 
 - 至少传一个路径
-- 每个路径必须是绝对路径、文件存在且为普通文件
+- 每个路径必须是绝对路径或 `~/` 路径，文件存在且为普通文件
 - 多图会按数组顺序上传
 
 `mask_path` 规则：
@@ -473,7 +482,26 @@ GitHub 仓库里不要提交 `dist/`。不同系统需要在本机编译自己�
 
 如果你已经配置过但后来移动了项目目录，检查 config 里的 runner 路径是否还是旧路径。
 
+可以运行本地连接检查，确认 MCP 能启动并提供两个工具；此命令不会生成图片：
+
+```bash
+~/.local/share/image2-mcp/scripts/run-image2-mcp.sh --verify-mcp
+```
+
+Windows PowerShell：
+
+```powershell
+& "$env:LOCALAPPDATA\image2-mcp\scripts\run-image2-mcp.ps1" --verify-mcp
+```
+
+成功时输出 `MCP verification: OK`。若失败，保留错误并排查对应阶段，避免反复重装。
+
 ### 生图失败怎么办？
+
+MCP 连接正常并不代表客户的 Key 已获得 Image 2.5 权限。使用 2.5 时应传入
+`version: "2.5"`；网关权限或模型不可用需要按接口错误排查，工具不会自动降级到 2.0。
+429 和临时 5xx 最多尝试 3 次，其他 HTTP 错误不重试。一次 API 请求最多等待 180 秒，
+Codex 工具超时设为 600 秒以容纳这段等待；失败后不应由 Agent 再发起重复生图。
 
 检查：
 

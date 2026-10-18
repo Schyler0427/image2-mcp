@@ -21,13 +21,15 @@ import (
 )
 
 const (
-	DefaultBaseURL = "https://api.schyler.top"
-	DefaultModel   = "gpt-image-2"
-	Image25Model   = "gpt-image-2.5-sunburst"
-	DefaultSize    = "1024x1024"
-	DefaultQuality = "auto"
-	maxAttempts    = 3
-	maxRetryAfter  = 10 * time.Second
+	DefaultBaseURL        = "https://api.schyler.top"
+	DefaultModel          = "gpt-image-2"
+	Image25Model          = "gpt-image-2.5-sunburst"
+	DefaultSize           = "1024x1024"
+	DefaultQuality        = "auto"
+	maxAttempts           = 3
+	maxRetryAfter         = 10 * time.Second
+	maxImageResponseBytes = 64 << 20
+	maxErrorResponseBytes = 64 << 10
 )
 
 var safeNameRE = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
@@ -118,9 +120,14 @@ func configuredModel() string {
 }
 
 func resolveRequestedModel(version string, configured string) (string, error) {
-	switch strings.TrimSpace(version) {
-	case "":
+	version = strings.ToLower(strings.TrimSpace(version))
+	if version == "" {
 		return configured, nil
+	}
+	version = strings.ReplaceAll(version, " ", "")
+	version = strings.TrimSuffix(version, "生图")
+	version = strings.TrimPrefix(version, "image")
+	switch version {
 	case "2.0":
 		return DefaultModel, nil
 	case "2.5":
@@ -314,7 +321,11 @@ func (c *Client) doImageRequest(ctx context.Context, method, endpoint string, bo
 		if err != nil {
 			return nil, nil, 0, attempt, fmt.Errorf("request image API: %w", err)
 		}
-		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		limit := int64(maxErrorResponseBytes)
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			limit = maxImageResponseBytes
+		}
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 		headers := resp.Header.Clone()
 		status := resp.StatusCode
 		_ = resp.Body.Close()
@@ -322,6 +333,9 @@ func (c *Client) doImageRequest(ctx context.Context, method, endpoint string, bo
 			return nil, headers, status, attempt, fmt.Errorf("read image response: %w", readErr)
 		}
 		if status >= 200 && status < 300 {
+			if int64(len(respBody)) > limit {
+				return nil, headers, status, attempt, fmt.Errorf("image response exceeds %d MiB; request a smaller image", maxImageResponseBytes>>20)
+			}
 			return respBody, headers, status, attempt, nil
 		}
 
@@ -364,11 +378,10 @@ func isRetryableStatus(status int) bool {
 func retryDelay(headers http.Header, attempt int) time.Duration {
 	if raw := strings.TrimSpace(headers.Get("Retry-After")); raw != "" {
 		if seconds, err := strconv.Atoi(raw); err == nil && seconds >= 0 {
-			delay := time.Duration(seconds) * time.Second
-			if delay > maxRetryAfter {
+			if seconds >= int(maxRetryAfter/time.Second) {
 				return maxRetryAfter
 			}
-			return delay
+			return time.Duration(seconds) * time.Second
 		}
 	}
 	return time.Duration(1<<(attempt-1)) * time.Second

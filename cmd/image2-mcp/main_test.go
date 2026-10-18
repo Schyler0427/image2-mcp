@@ -15,8 +15,8 @@ import (
 )
 
 func TestServerVersion(t *testing.T) {
-	if serverVersion != "0.3.2" {
-		t.Fatalf("serverVersion = %q, want 0.3.2", serverVersion)
+	if serverVersion != "0.3.3" {
+		t.Fatalf("serverVersion = %q, want 0.3.3", serverVersion)
 	}
 }
 
@@ -93,6 +93,8 @@ func TestServerInstructionsAndToolDescriptions(t *testing.T) {
 		"Do not use Computer Use",
 		"Preserve the user's task details",
 		"~ paths",
+		`version: "2.5"`,
+		"Image 2.5 requests must pass version",
 	} {
 		if !strings.Contains(metadata, phrase) {
 			t.Errorf("metadata missing %q: %q", phrase, metadata)
@@ -316,6 +318,9 @@ func TestEditImage2ToolMapsQualityAndMask(t *testing.T) {
 		if got := r.FormValue("quality"); got != "high" {
 			t.Fatalf("quality = %q, want high", got)
 		}
+		if got := r.FormValue("model"); got != "gpt-image-2.5-sunburst" {
+			t.Fatalf("model = %q, want Image 2.5", got)
+		}
 		images := r.MultipartForm.File["image[]"]
 		if len(images) != 1 || images[0].Filename != "reference.png" {
 			t.Fatalf("image files = %#v", images)
@@ -352,6 +357,7 @@ func TestEditImage2ToolMapsQualityAndMask(t *testing.T) {
 		Name: "edit_image2",
 		Arguments: editParams{
 			Prompt:     "make it cinematic",
+			Version:    "Image 2.5",
 			ImagePaths: []string{imagePath},
 			MaskPath:   maskPath,
 			Quality:    "high",
