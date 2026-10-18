@@ -40,6 +40,9 @@ chmod +x "$repo/install.sh" "$repo/scripts/"*.sh
 
 cat > "$tmp/payload/image2-mcp" <<'BIN'
 #!/usr/bin/env bash
+if [[ "${1:-}" == --verify-mcp && "${IMAGE2_MCP_TEST_VERIFY_MODE:-}" != missing-marker ]]; then
+  echo 'MCP verification: OK'
+fi
 exit 0
 BIN
 chmod +x "$tmp/payload/image2-mcp"
@@ -114,8 +117,9 @@ printf '%s\nignored-second-line\n' "$secret" |
 assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
-assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.2/$expected_asset"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.3/$expected_asset"
 assert_contains "$curl_args" '--connect-timeout'
+assert_contains "$curl_args" '-q -fL --retry 0'
 assert_contains "$curl_args" '10'
 assert_contains "$curl_args" '--max-time'
 assert_contains "$curl_args" '90'
@@ -165,6 +169,8 @@ assert_contains "$home/.codex/config.toml" '[mcp_servers.image20]'
 assert_contains "$home/.codex/config.toml" '/keep/image20-runner'
 assert_not_contains "$home/.codex/config.toml" '/old/runner'
 assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
+assert_contains "$home/.codex/config.toml" 'startup_timeout_sec = 20'
+assert_contains "$home/.codex/config.toml" 'tool_timeout_sec = 600'
 [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'image2 root table count is not 1'
 [[ "$(file_mode "$repo/.env.local")" == 600 ]] || fail '.env.local mode is not 600'
 [[ -x "$repo/dist/image2-mcp" ]] || fail 'binary is missing or not executable'
@@ -183,6 +189,14 @@ HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only </dev/null >"$reuse_output" 2>&1 || fail 'key-only upgrade with existing environment failed'
 assert_contains "$reuse_output" 'Existing API Key configuration found; reusing it.'
 assert_contains "$reuse_output" 'Verification: OK'
+
+if HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  IMAGE2_MCP_TEST_VERIFY_MODE=missing-marker \
+  "$repo/install.sh" --key-only </dev/null >"$tmp/missing-marker.log" 2>&1; then
+  fail 'binary without MCP verification marker unexpectedly succeeded'
+fi
+assert_contains "$tmp/missing-marker.log" 'MCP handshake verification failed'
+assert_not_contains "$tmp/missing-marker.log" "$secret"
 
 spaced_home="$tmp/spaced-home"
 rm -f "$repo/.env.local"

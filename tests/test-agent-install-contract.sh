@@ -5,6 +5,14 @@ doc="$root/AGENT_INSTALL.md"
 readme="$root/README.md"
 workflow="$root/.github/workflows/release.yml"
 windows_installer="$root/install.ps1"
+expected_release="v$(sed -n 's/^const serverVersion = "\([^"]*\)"/\1/p' "$root/cmd/image2-mcp/main.go")"
+for versioned_path in AGENT_INSTALL.md scripts/setup.sh install.ps1 scripts/bootstrap-agent-install.sh scripts/bootstrap-agent-install.ps1; do
+  actual_releases="$(grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' "$root/$versioned_path" | sort -u)"
+  [[ "$actual_releases" == "$expected_release" ]] || {
+    echo "FAIL: $versioned_path does not use server release $expected_release consistently" >&2
+    exit 1
+  }
+done
 [[ -f "$doc" ]] || { echo 'FAIL: AGENT_INSTALL.md missing' >&2; exit 1; }
 [[ -f "$windows_installer" ]] || { echo 'FAIL: install.ps1 missing' >&2; exit 1; }
 for required in \
@@ -67,7 +75,7 @@ for required in \
   }
 done
 for required in \
-  'curl -fL --connect-timeout 10 --max-time 60 URL -o FILE' \
+  'curl -q -fL --retry 0 --connect-timeout 10 --max-time 60 URL -o FILE' \
   'wget --tries=1 --timeout=60 -O FILE URL' \
   'Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri URL -OutFile FILE'; do
   grep -Fq "$required" "$doc" || {
@@ -92,8 +100,8 @@ grep -Fq '$Security = Get-Acl -Path $Path' "$windows_installer" || {
   exit 1
 }
 for required in \
-  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.2' \
-  'v0.3.2' \
+  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3' \
+  'v0.3.3' \
   'image2-mcp_darwin_arm64.tar.gz' \
   'image2-mcp_darwin_amd64.tar.gz' \
   'image2-mcp_linux_arm64.tar.gz' \
@@ -103,7 +111,7 @@ for required in \
   'draft' \
   'prerelease' \
   'git clone --depth 1 https://github.com/Schyler0427/image2-mcp.git' \
-  'curl -fL' \
+  'curl -q -fL --retry 0' \
   'tar -xzf' \
   'Invoke-WebRequest' \
   'A blank or whitespace-only key fails once with no re-prompt.' \
@@ -116,22 +124,22 @@ for test_path in 'tests/test-agent-bootstrap.sh' 'tests/test-agent-bootstrap.ps1
     exit 1
   }
 done
-grep -Fq -- '- "v0.3.2"' "$workflow" || {
-  echo 'FAIL: release workflow is not pinned to v0.3.2' >&2
+grep -Fq -- '- "v*"' "$workflow" || {
+  echo 'FAIL: release workflow does not accept version tags' >&2
   exit 1
 }
-grep -Fq 'git tag v0.3.2' "$root/README.md" || {
-  echo 'FAIL: README release instructions are not pinned to v0.3.2' >&2
+grep -Fq 'test "$GITHUB_REF_NAME" = "v$version"' "$workflow" || {
+  echo 'FAIL: release workflow does not check the tag against the server version' >&2
   exit 1
 }
-grep -Fq '仓库包含 GitHub Actions Release workflow。推送 `v0.3.2` tag 后会自动构建：' "$root/README.md" || {
-  echo 'FAIL: README release trigger is not pinned to v0.3.2' >&2
+grep -Fq 'git tag v0.3.3' "$root/README.md" || {
+  echo 'FAIL: README release instructions are not pinned to v0.3.3' >&2
   exit 1
 }
-if grep -Fq '`v*` tag' "$root/README.md"; then
-  echo 'FAIL: README release trigger still accepts a wildcard tag' >&2
+grep -Fq '仓库包含 GitHub Actions Release workflow。推送 `v*` tag 后会核对服务版本并自动构建：' "$root/README.md" || {
+  echo 'FAIL: README release trigger does not describe the version check' >&2
   exit 1
-fi
+}
 asset_count="$(grep -Ec 'goos: (darwin|linux|windows)|goarch: (arm64|amd64)' "$workflow")"
 [[ "$asset_count" -eq 12 ]] || {
   echo 'FAIL: release workflow six-asset matrix changed' >&2

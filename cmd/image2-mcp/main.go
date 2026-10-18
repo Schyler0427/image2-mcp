@@ -13,11 +13,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverVersion = "0.3.2"
+const serverVersion = "0.3.3"
 
 type generateParams struct {
 	Prompt     string `json:"prompt" jsonschema:"Image prompt to generate."`
-	Version    string `json:"version,omitempty" jsonschema:"Optional image version selector: omit for Image 2.0; use 2.5 for Image 2.5."`
+	Version    string `json:"version,omitempty" jsonschema:"Optional image version selector. Omit for the maintainer default (normally Image 2.0); Image 2.5 requests must pass exactly 2.5."`
 	Size       string `json:"size,omitempty" jsonschema:"Image size, defaults to 1024x1024."`
 	OutputDir  string `json:"output_dir,omitempty" jsonschema:"Optional absolute directory to save the PNG."`
 	OutputName string `json:"output_name,omitempty" jsonschema:"Optional PNG file name. Defaults to image2-{timestamp}.png."`
@@ -25,7 +25,7 @@ type generateParams struct {
 
 type editParams struct {
 	Prompt     string   `json:"prompt" jsonschema:"Image prompt for the edit."`
-	Version    string   `json:"version,omitempty" jsonschema:"Optional image version selector: omit for Image 2.0; use 2.5 for Image 2.5."`
+	Version    string   `json:"version,omitempty" jsonschema:"Optional image version selector. Omit for the maintainer default (normally Image 2.0); Image 2.5 requests must pass exactly 2.5."`
 	ImagePaths []string `json:"image_paths" jsonschema:"Absolute paths to source images, preserved in request order. At least one required."`
 	Size       string   `json:"size,omitempty" jsonschema:"Image size, defaults to 1024x1024."`
 	Quality    string   `json:"quality,omitempty" jsonschema:"Image quality, defaults to auto."`
@@ -46,6 +46,12 @@ func run() error {
 		return err
 	}
 	outputDir := filepath.Join(projectRoot, "output", "imagegen")
+	if len(os.Args) == 2 && os.Args[1] == "--verify-mcp" {
+		return verifyInstallation(outputDir)
+	}
+	if len(os.Args) > 1 {
+		return fmt.Errorf("unsupported arguments; use --verify-mcp for a local connection check")
+	}
 	server := newServer(projectRoot, outputDir)
 	return server.Run(context.Background(), &mcp.StdioTransport{})
 }
@@ -55,12 +61,12 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		Name:    "image2-mcp",
 		Version: serverVersion,
 	}, &mcp.ServerOptions{
-		Instructions: "Natural-language image requests such as \"帮我生成一张图\" automatically call generate_image2. You may explicitly say \"使用 image2\" to use these tools. For an existing image, photo, attachment, reference image, or mask request, call edit_image2 directly. Do not use Computer Use, browser navigation, screenshots, or generic file tools for the transformation. Preserve the user's task details, subject, style, pose, and composition. Pass all image paths in order; ~ paths are supported. The default is Image 2.0 unless the maintainer explicitly sets OPENAI_IMAGE_MODEL to configure a different default; say \"用 2.5 生图\" or set version to 2.5 to select Image 2.5. Do not ask the user for a Base URL, model ID, endpoint, Go, Git, or admin permission. The tools generate or edit PNG files and return the local file path.",
+		Instructions: "Natural-language image requests such as \"帮我生成一张图\" automatically call generate_image2. You may explicitly say \"使用 image2\" to use these tools. For an existing image, photo, attachment, reference image, or mask request, call edit_image2 directly. Do not use Computer Use, browser navigation, screenshots, or generic file tools for the transformation. Preserve the user's task details, subject, style, pose, and composition. Pass all image paths in order; ~ paths are supported. The default is Image 2.0 unless a maintainer sets OPENAI_IMAGE_MODEL. Image 2.5 requests must pass version: \"2.5\" to the selected tool; natural-language requests such as \"用 2.5 生图\" select that version. Temporary API failures are already retried by the tool. Do not automatically repeat failed image calls or switch versions after an error. Do not ask the user for a Base URL, model ID, endpoint, Go, Git, or admin permission. The tools generate or edit PNG files and return the local file path.",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "generate_image2",
-		Description: "Generate one PNG image. Natural-language requests automatically use this tool; omit version for the maintainer-configured default (Image 2.0 unless OPENAI_IMAGE_MODEL is explicitly set), or set version to 2.5 for Image 2.5. Save the result locally.",
+		Description: "Generate one PNG image. Natural-language requests automatically use this tool; omit version for the maintainer-configured default (Image 2.0 unless OPENAI_IMAGE_MODEL is explicitly set), or pass version: \"2.5\" exactly for Image 2.5. Save the result locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params generateParams) (*mcp.CallToolResult, image2.GenerateResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
@@ -89,7 +95,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_image2",
-		Description: "Edit one or more local images with an optional mask. For an existing image, photo, attachment, reference image, or mask request, call edit_image2 directly. Do not use Computer Use, browser navigation, screenshots, or generic file tools for the transformation. Preserve the user's task details, subject, style, pose, and composition, and pass all image paths in order. ~ paths are supported. Omit version for the maintainer-configured default (Image 2.0 unless OPENAI_IMAGE_MODEL is explicitly set), or set version to 2.5 for Image 2.5, then save the result locally.",
+		Description: "Edit one or more local images with an optional mask. For an existing image, photo, attachment, reference image, or mask request, call edit_image2 directly. Do not use Computer Use, browser navigation, screenshots, or generic file tools for the transformation. Preserve the user's task details, subject, style, pose, and composition, and pass all image paths in order. ~ paths are supported. Omit version for the maintainer default (normally Image 2.0). For Image 2.5, pass version: \"2.5\" exactly, then save the result locally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params editParams) (*mcp.CallToolResult, image2.EditResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {

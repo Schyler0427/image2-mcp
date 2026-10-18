@@ -103,7 +103,7 @@ download_prebuilt() {
   }
   asset="image2-mcp_${os}_${arch}.tar.gz"
   if [[ "$key_only" -eq 1 ]]; then
-    url="https://github.com/${repo}/releases/download/v0.3.2/${asset}"
+    url="https://github.com/${repo}/releases/download/v0.3.3/${asset}"
   else
     url="https://github.com/${repo}/releases/latest/download/${asset}"
   fi
@@ -113,7 +113,7 @@ download_prebuilt() {
   binary="${extract}/image2-mcp"
   echo "==> Downloading prebuilt binary: ${url}"
   if command -v curl >/dev/null 2>&1; then
-    if ! curl -fL --connect-timeout 10 --max-time 90 "$url" -o "${tmp}/${asset}"; then
+    if ! curl -q -fL --retry 0 --connect-timeout 10 --max-time 90 "$url" -o "${tmp}/${asset}"; then
       rm -rf "$tmp"
       return 1
     fi
@@ -510,6 +510,8 @@ replace_image2_config() {
   {
     printf '\n[mcp_servers.image2]\n'
     printf 'command = "%s"\n' "$runner"
+    printf 'startup_timeout_sec = 20\n'
+    printf 'tool_timeout_sec = 600\n'
   } >>"$tmp"
   root_count="$(grep -c '^\[mcp_servers\.image2\]$' "$tmp" || true)"
   if [[ "$root_count" -ne 1 ]] || grep -q 'OPENAI_IMAGE_API_KEY' "$tmp"; then
@@ -543,14 +545,30 @@ verify_key_only_install() {
   local binary="${repo_dir}/dist/image2-mcp"
   local runner="${repo_dir}/scripts/run-image2-mcp.sh"
   local config="${HOME}/.codex/config.toml"
+  local verify_pid watchdog_pid verify_status=0
+  local verify_log="${repo_dir}/.verify-image2-mcp.log"
   [[ -s "$binary" && -x "$binary" ]] || { echo 'error: binary verification failed' >&2; return 1; }
   [[ -x "$runner" ]] || { echo 'error: runner verification failed' >&2; return 1; }
-  "$runner" </dev/null >/dev/null 2>"${repo_dir}/.verify-image2-mcp.log" || {
-    rm -f "${repo_dir}/.verify-image2-mcp.log"
-    echo 'error: runner startup verification failed' >&2
+  "$runner" --verify-mcp </dev/null >"$verify_log" 2>/dev/null &
+  verify_pid=$!
+  (
+    sleeper=''
+    trap 'kill "$sleeper" 2>/dev/null || true; exit' TERM
+    sleep 20 &
+    sleeper=$!
+    wait "$sleeper"
+    kill "$verify_pid" 2>/dev/null || true
+  ) </dev/null >/dev/null 2>&1 &
+  watchdog_pid=$!
+  wait "$verify_pid" || verify_status=$?
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+  if [[ "$verify_status" -ne 0 ]] || ! grep -Fxq 'MCP verification: OK' "$verify_log"; then
+    rm -f "$verify_log"
+    echo 'error: MCP handshake verification failed; check the runner and installed Release binary' >&2
     return 1
-  }
-  rm -f "${repo_dir}/.verify-image2-mcp.log"
+  fi
+  rm -f "$verify_log"
   [[ "$OPENAI_IMAGE_BASE_URL" == "$readonly_key_only_base_url" && -n "$OPENAI_IMAGE_API_KEY" ]] || {
     echo 'error: environment verification failed' >&2
     return 1

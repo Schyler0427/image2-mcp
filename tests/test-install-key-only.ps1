@@ -26,6 +26,7 @@ function Get-FileFingerprint([string]$Path) {
 function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "") {
   $PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
   $InputFile = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdin-" + [Guid]::NewGuid().ToString("N"))
+  $Process = $null
   try {
     [IO.File]::WriteAllText($InputFile, $InputText, (New-Object Text.UTF8Encoding($false)))
     $Info = New-Object System.Diagnostics.ProcessStartInfo
@@ -39,14 +40,27 @@ function Invoke-TestInstaller([string[]]$InstallerArgs, [string]$InputText = "")
     $Process = New-Object System.Diagnostics.Process
     $Process.StartInfo = $Info
     [void]$Process.Start()
-    $Stdout = $Process.StandardOutput.ReadToEnd()
-    $Stderr = $Process.StandardError.ReadToEnd()
-    $Process.WaitForExit()
+    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    if (-not $Process.WaitForExit(60000)) {
+      throw "test installer timed out after 60 seconds"
+    }
+    if (-not $StdoutTask.Wait(5000) -or -not $StderrTask.Wait(5000)) {
+      throw "test installer output did not close"
+    }
     return [PSCustomObject]@{
       ExitCode = $Process.ExitCode
-      Output = $Stdout + $Stderr
+      Output = $StdoutTask.Result + $StderrTask.Result
     }
   } finally {
+    if ($null -ne $Process) {
+      try {
+        if (-not $Process.HasExited) {
+          & (Join-Path $env:SystemRoot "System32\taskkill.exe") /PID $Process.Id /T /F 2>&1 | Out-Null
+          if (-not $Process.WaitForExit(5000)) { $Process.Kill() }
+        }
+      } finally { $Process.Dispose() }
+    }
     Remove-Item -Force -ErrorAction SilentlyContinue $InputFile
   }
 }
@@ -63,7 +77,7 @@ $ConfigFile = Join-Path $TestHome ".codex\config.toml"
 $EnvFile = Join-Path $Repo ".env.local"
 
 $SavedEnvironment = @{}
-foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELEASE_ZIP", "IMAGE2_MCP_TEST_INSTALLER", "IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "IMAGE2_MCP_TEST_EXPECTED_API_KEY", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_API_KEY")) {
+foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELEASE_ZIP", "IMAGE2_MCP_TEST_INSTALLER", "IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "IMAGE2_MCP_TEST_EXPECTED_API_KEY", "IMAGE2_MCP_TEST_VERIFY_MODE", "IMAGE2_MCP_TEST_VERIFY_PIDS", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_API_KEY")) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
 
@@ -73,9 +87,12 @@ try {
   Copy-Item (Join-Path $Root "scripts\run-image2-mcp.ps1") (Join-Path $Repo "scripts\run-image2-mcp.ps1")
   $RunnerSource = @'
 using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
 
 public static class Program {
-  public static int Main() {
+  public static int Main(string[] args) {
     bool baseUrlMatches = String.Equals(
       Environment.GetEnvironmentVariable("OPENAI_IMAGE_BASE_URL"),
       Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_BASE_URL"),
@@ -84,7 +101,40 @@ public static class Program {
       Environment.GetEnvironmentVariable("OPENAI_IMAGE_API_KEY"),
       Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY"),
       StringComparison.Ordinal);
-    return baseUrlMatches && apiKeyMatches ? 0 : 29;
+    if (!baseUrlMatches || !apiKeyMatches) return 29;
+    if (args.Length != 1 || args[0] != "--verify-mcp") return 28;
+    string mode = Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_MODE");
+    if (mode == "no-marker") return 0;
+    if (mode == "near-marker") {
+      Console.WriteLine("MCP verification: OK extra");
+      return 0;
+    }
+    if (mode == "stderr-marker") {
+      Console.Error.WriteLine("MCP verification: OK");
+      return 0;
+    }
+    if (mode == "hang") {
+      ProcessStartInfo info = new ProcessStartInfo(
+        Path.Combine(Environment.GetEnvironmentVariable("SystemRoot"), "System32", "ping.exe"),
+        "-n 120 127.0.0.1");
+      info.UseShellExecute = false;
+      info.CreateNoWindow = true;
+      info.RedirectStandardOutput = true;
+      info.RedirectStandardError = true;
+      using (Process child = Process.Start(info)) {
+        File.WriteAllLines(Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_PIDS"),
+          new string[] { Process.GetCurrentProcess().Id.ToString(), child.Id.ToString() });
+        Thread.Sleep(120000);
+      }
+      return 0;
+    }
+    Console.WriteLine("MCP verification: OK");
+    if (mode == "nonzero") {
+      // The installer must keep captured diagnostics private even on failure.
+      Console.Error.WriteLine(Environment.GetEnvironmentVariable("OPENAI_IMAGE_API_KEY"));
+      return 31;
+    }
+    return 0;
   }
 }
 '@
@@ -109,6 +159,11 @@ function Invoke-WebRequest {
   if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
     throw "fixture download did not preserve TLS"
   }
+  # The runner imports .env.local again, hiding an installer-side key reset.
+  # Check the real installer environment before that second import can occur.
+  if ($env:OPENAI_IMAGE_API_KEY -cne $env:IMAGE2_MCP_TEST_EXPECTED_API_KEY) {
+    throw "installer did not preserve the expected API Key before binary download"
+  }
   Copy-Item -LiteralPath $env:IMAGE2_MCP_TEST_RELEASE_ZIP -Destination $OutFile
 }
 
@@ -127,6 +182,8 @@ Invoke-Installer
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "https://api.schyler.top", "Process")
   [Environment]::SetEnvironmentVariable("OPENAI_IMAGE_BASE_URL", "https://ignored.invalid", "Process")
   [Environment]::SetEnvironmentVariable("OPENAI_IMAGE_API_KEY", "old-key-must-be-ignored", "Process")
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_MODE", $null, "Process")
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_PIDS", $null, "Process")
 
   $InitialConfig = @'
 model = "gpt-5"
@@ -169,9 +226,25 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
   Assert-True (-not $Result.Output.Contains($Secret)) "API Key leaked to output"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"
-  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.2/")) "Release tag is not fixed"
+  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.3/")) "Release tag is not fixed"
   Assert-True ($Result.Output.Contains("Base URL: https://api.schyler.top")) "reported base URL is not fixed"
   Assert-True (-not $Result.Output.Contains("legacy-key-must-not-win")) "legacy API Key leaked to output"
+
+  $ManagedMarker = Join-Path $Repo ".image2-mcp-managed"
+  [IO.File]::WriteAllText($ManagedMarker, "managed test installation", (New-Object Text.UTF8Encoding($false)))
+  $ManagedEnvHash = Get-FileFingerprint $EnvFile
+  try {
+    # Empty stdin proves a managed repeat reuses the saved key without prompting.
+    $ManagedRepeat = Invoke-TestInstaller -InstallerArgs @("-KeyOnly")
+    Assert-True ($ManagedRepeat.ExitCode -eq 0) "managed repeat install failed: $($ManagedRepeat.Output)"
+    Assert-True ($ManagedRepeat.Output.Contains("reusing it")) "managed repeat did not reuse the existing key"
+    Assert-True (-not $ManagedRepeat.Output.Contains("OPENAI_IMAGE_API_KEY:")) "managed repeat prompted for a key"
+    Assert-True (-not $ManagedRepeat.Output.Contains($Secret)) "managed repeat leaked the saved key"
+    Assert-True ($ManagedRepeat.Output.Contains("Verification: OK")) "managed repeat verification marker missing"
+    Assert-True ((Get-FileFingerprint $EnvFile) -eq $ManagedEnvHash) "managed repeat changed the saved environment"
+  } finally {
+    Remove-Item -LiteralPath $ManagedMarker -Force
+  }
 
   $Config = [IO.File]::ReadAllText($ConfigFile)
   Assert-True ($Config.Contains('model = "gpt-5"')) "top-level Codex config was removed"
@@ -182,8 +255,46 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True (-not $Config.Contains('OLD = "value"')) "old Image2 descendant config remains"
   Assert-True (([regex]::Matches($Config, '(?m)^\[mcp_servers\.image2\]\r?$')).Count -eq 1) "Image2 root table count is not one"
   Assert-True ($Config.Contains('scripts\\run-image2-mcp.ps1')) "Codex config does not reference the runner"
+  Assert-True ($Config.Contains('startup_timeout_sec = 20')) "Codex startup timeout is not 20 seconds"
+  Assert-True ($Config.Contains('tool_timeout_sec = 600')) "Codex tool timeout is not 600 seconds"
   Assert-True (-not $Config.Contains("OPENAI_IMAGE_API_KEY")) "API Key setting leaked to Codex config"
   Assert-True ((Test-Path (Join-Path $Repo "dist\image2-mcp.exe"))) "Release binary is missing"
+
+  foreach ($Mode in @("no-marker", "near-marker", "stderr-marker", "nonzero")) {
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_MODE", $Mode, "Process")
+    $VerificationFailure = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+    Assert-True ($VerificationFailure.ExitCode -ne 0) "verification mode $Mode unexpectedly succeeded"
+    Assert-True ($VerificationFailure.Output.Contains("runner MCP verification failed")) "verification mode $Mode error is unclear"
+    Assert-True (-not $VerificationFailure.Output.Contains("Verification: OK")) "verification mode $Mode reported success"
+    Assert-True (-not $VerificationFailure.Output.Contains($Secret)) "verification mode $Mode leaked the key"
+  }
+  $VerificationPids = Join-Path $TempRoot "verification-pids.txt"
+  $VerificationTempBefore = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Filter "image2-mcp-std*" | ForEach-Object { $_.FullName })
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_MODE", "hang", "Process")
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_PIDS", $VerificationPids, "Process")
+  $VerificationTimer = [Diagnostics.Stopwatch]::StartNew()
+  try {
+    $VerificationTimeout = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+    Assert-True ($VerificationTimeout.ExitCode -ne 0) "hanging verification unexpectedly succeeded"
+    Assert-True ($VerificationTimeout.Output.Contains("runner MCP verification timed out after 20 seconds")) "verification timeout error is unclear"
+    Assert-True (-not $VerificationTimeout.Output.Contains("Verification: OK")) "timed-out verification reported success"
+    Assert-True (-not $VerificationTimeout.Output.Contains($Secret)) "verification timeout leaked the key"
+    Assert-True ($VerificationTimer.Elapsed.TotalSeconds -lt 45) "verification timeout took more than 45 seconds"
+    Assert-True (Test-Path -LiteralPath $VerificationPids) "hanging fixture did not record its processes"
+    foreach ($ProcessId in Get-Content -LiteralPath $VerificationPids) {
+      Assert-True ($null -eq (Get-Process -Id ([int]$ProcessId) -ErrorAction SilentlyContinue)) "verification left a spawned process running"
+    }
+    $VerificationTempAfter = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Filter "image2-mcp-std*" | Where-Object { $VerificationTempBefore -notcontains $_.FullName })
+    Assert-True ($VerificationTempAfter.Count -eq 0) "verification left temporary input or log files"
+  } finally {
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_MODE", $null, "Process")
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_PIDS", $null, "Process")
+    if (Test-Path -LiteralPath $VerificationPids) {
+      foreach ($ProcessId in Get-Content -LiteralPath $VerificationPids) {
+        Stop-Process -Id ([int]$ProcessId) -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
 
   $BadFixture = Join-Path $TempRoot "image2-mcp-extra.zip"
   $BadExtra = Join-Path $Payload "extra.txt"

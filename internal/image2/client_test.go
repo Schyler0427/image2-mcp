@@ -1,6 +1,7 @@
 package image2
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -118,6 +119,26 @@ func TestRejectsInvalidImageVersion(t *testing.T) {
 	_, err = client.Generate(context.Background(), GenerateRequest{Prompt: "hello", Version: "3.0"})
 	if err == nil || err.Error() != "image version must be 2.0 or 2.5" {
 		t.Fatalf("err = %v, want image version must be 2.0 or 2.5", err)
+	}
+}
+
+func TestResolveRequestedModelAcceptsImage25Aliases(t *testing.T) {
+	for _, version := range []string{"2.5", "Image 2.5", "image2.5", "2.5生图"} {
+		model, err := resolveRequestedModel(version, DefaultModel)
+		if err != nil {
+			t.Fatalf("version %q returned error: %v", version, err)
+		}
+		if model != Image25Model {
+			t.Fatalf("version %q resolved to %q, want %q", version, model, Image25Model)
+		}
+	}
+}
+
+func TestResolveRequestedModelRejectsMissingVersionTokens(t *testing.T) {
+	for _, version := range []string{"image", "生图", "image生图", "2.6"} {
+		if _, err := resolveRequestedModel(version, DefaultModel); err == nil {
+			t.Fatalf("version %q unexpectedly accepted", version)
+		}
 	}
 }
 
@@ -341,6 +362,36 @@ func TestGenerateRetries429ThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestGenerateImage25AcceptsLargeImageResponse(t *testing.T) {
+	// A 7 MiB PNG becomes more than 8 MiB after base64 encoding.
+	png := bytes.Repeat([]byte("p"), 7<<20)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(png)}},
+		})
+	}))
+	defer server.Close()
+	client, err := New("test-key", server.URL, t.TempDir(), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Generate(context.Background(), GenerateRequest{Prompt: "large image", Version: "2.5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(result.FilePath)
+	if err != nil || !bytes.Equal(got, png) {
+		t.Fatalf("saved image differs: size=%d, error=%v", len(got), err)
+	}
+}
+
+func TestRetryDelayCapsLargeValuesWithoutOverflow(t *testing.T) {
+	headers := http.Header{"Retry-After": {"9223372037"}}
+	if got := retryDelay(headers, 1); got != maxRetryAfter {
+		t.Fatalf("retry delay = %s, want %s", got, maxRetryAfter)
+	}
+}
+
 func TestGenerateRetries503ThenSucceeds(t *testing.T) {
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -552,6 +603,7 @@ func TestEditDecodesB64JSONAndWritesPNG(t *testing.T) {
 func TestEditExpandsHomePaths(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	png := []byte{0x89, 'P', 'N', 'G'}
 	for _, name := range []string{"input.png", "mask.png"} {
 		if err := os.WriteFile(filepath.Join(home, name), png, 0o644); err != nil {
@@ -593,6 +645,7 @@ func TestEditExpandsHomePaths(t *testing.T) {
 func TestGenerateExpandsHomeOutputDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	png := []byte{0x89, 'P', 'N', 'G'}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

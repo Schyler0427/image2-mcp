@@ -241,7 +241,7 @@ function Install-Prebuilt {
   $Arch = Get-ArchName
   $Asset = "image2-mcp_windows_${Arch}.zip"
   $Url = if ($KeyOnly) {
-    "https://github.com/${Repo}/releases/download/v0.3.2/${Asset}"
+    "https://github.com/${Repo}/releases/download/v0.3.3/${Asset}"
   } else {
     "https://github.com/${Repo}/releases/latest/download/${Asset}"
   }
@@ -535,6 +535,8 @@ function Set-Image2CodexConfig([string]$ConfigFile) {
   $Output.Add('command = "powershell.exe"')
   $RunnerLine = 'args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "' + $Runner + '"]'
   $Output.Add($RunnerLine)
+  $Output.Add('startup_timeout_sec = 20')
+  $Output.Add('tool_timeout_sec = 600')
 
   $Temp = "$ConfigFile.tmp.$([Guid]::NewGuid().ToString('N'))"
   $Encoding = New-Object Text.UTF8Encoding($false)
@@ -579,6 +581,35 @@ function Configure-CodexInstall {
   Set-Image2CodexConfig $ConfigFile
 }
 
+function Stop-Image2VerificationProcess([Diagnostics.Process]$Process) {
+  if ($Process.HasExited) { return }
+
+  # Process.Kill(true) is unavailable in Windows PowerShell 5.1. taskkill /T
+  # also stops the runner's binary and its MCP subprocess before the root exits.
+  $TreeKiller = $null
+  try {
+    $Info = New-Object Diagnostics.ProcessStartInfo
+    $Info.FileName = Join-Path $env:SystemRoot "System32\taskkill.exe"
+    $Info.Arguments = "/PID $($Process.Id) /T /F"
+    $Info.UseShellExecute = $false
+    $Info.CreateNoWindow = $true
+    $Info.RedirectStandardOutput = $true
+    $Info.RedirectStandardError = $true
+    $TreeKiller = [Diagnostics.Process]::Start($Info)
+    if (-not $TreeKiller.WaitForExit(5000)) {
+      $TreeKiller.Kill()
+    }
+  } catch {
+    # Still terminate the runner if taskkill is unavailable or races with exit.
+  } finally {
+    if ($null -ne $TreeKiller) { $TreeKiller.Dispose() }
+    if (-not $Process.WaitForExit(5000)) {
+      $Process.Kill()
+      [void]$Process.WaitForExit(5000)
+    }
+  }
+}
+
 function Test-KeyOnlyInstall {
   $Binary = Join-Path $RepoDir "dist\image2-mcp.exe"
   $Runner = Join-Path $RepoDir "scripts\run-image2-mcp.ps1"
@@ -592,22 +623,38 @@ function Test-KeyOnlyInstall {
 
   $PowerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
   $QuotedRunner = '"' + $Runner.Replace('"', '\"') + '"'
-  $TempToken = [Guid]::NewGuid().ToString("N")
-  $EmptyInput = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdin-" + $TempToken)
-  $RunnerStdout = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stdout-" + $TempToken + ".log")
-  $RunnerStderr = Join-Path ([IO.Path]::GetTempPath()) ("image2-mcp-stderr-" + $TempToken + ".log")
+  $Info = New-Object Diagnostics.ProcessStartInfo
+  $Info.FileName = $PowerShell
+  $Info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File $QuotedRunner --verify-mcp"
+  $Info.UseShellExecute = $false
+  $Info.CreateNoWindow = $true
+  $Info.RedirectStandardInput = $true
+  $Info.RedirectStandardOutput = $true
+  $Info.RedirectStandardError = $true
+  $Process = New-Object Diagnostics.Process
+  $Process.StartInfo = $Info
+  $Started = $false
+  $Timer = [Diagnostics.Stopwatch]::StartNew()
   try {
-    [IO.File]::WriteAllText($EmptyInput, "", (New-Object Text.UTF8Encoding($false)))
-    $Process = Start-Process -FilePath $PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $QuotedRunner" -RedirectStandardInput $EmptyInput -RedirectStandardOutput $RunnerStdout -RedirectStandardError $RunnerStderr -NoNewWindow -PassThru -Wait
-    if ($Process.ExitCode -ne 0) {
-      throw "runner startup verification failed"
+    $Started = $Process.Start()
+    $Process.StandardInput.Close()
+    # Drain both streams concurrently, keeping child diagnostics (and any key)
+    # out of console output and temporary files.
+    $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
+    $StderrTask = $Process.StandardError.ReadToEndAsync()
+    if (-not $Process.WaitForExit(20000)) {
+      throw "runner MCP verification timed out after 20 seconds"
+    }
+    $Remaining = [Math]::Max(0, 20000 - [int]$Timer.ElapsedMilliseconds)
+    if (-not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($StdoutTask, $StderrTask), $Remaining)) {
+      throw "runner MCP verification timed out after 20 seconds"
+    }
+    if ($Process.ExitCode -ne 0 -or
+        -not (($StdoutTask.Result -split '\r?\n') -ccontains "MCP verification: OK")) {
+      throw "runner MCP verification failed"
     }
   } finally {
-    foreach ($TemporaryFile in @($EmptyInput, $RunnerStdout, $RunnerStderr)) {
-      if (Test-Path $TemporaryFile) {
-        Remove-Item -Force -ErrorAction SilentlyContinue $TemporaryFile
-      }
-    }
+    try { if ($Started) { Stop-Image2VerificationProcess $Process } } finally { $Process.Dispose() }
   }
 
   Import-DotEnv (Join-Path $RepoDir ".env.local")
@@ -691,9 +738,9 @@ function Invoke-Installer {
       } else {
         Read-KeyOnce
         Write-KeyOnlyEnvironment
+        $env:OPENAI_IMAGE_API_KEY = $script:KeyOnlyApiKey
       }
       $env:OPENAI_IMAGE_BASE_URL = $KeyOnlyBaseUrl
-      $env:OPENAI_IMAGE_API_KEY = $script:KeyOnlyApiKey
     } else {
       if ($Interactive) {
         Write-InteractiveEnvironment
