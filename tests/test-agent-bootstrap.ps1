@@ -470,7 +470,9 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
       }
       $Result = Invoke-TestBootstrap $RefusalHome $V2 -ReleaseApiStatus $Status -ReleaseJsonPath $Json -NetworkLog $Log
       Assert-True ($Result.ExitCode -ne 0) "$Name unexpectedly succeeded"
-      Assert-True ($Result.Output.Contains($Diagnostic)) "$Name failed for the wrong reason: $($Result.Output)"
+      # Windows PowerShell formats long exception messages with line wrapping.
+      $DiagnosticOutput = [regex]::Replace($Result.Output, '\s+', ' ')
+      Assert-True ($DiagnosticOutput.Contains($Diagnostic)) "$Name failed for the wrong reason: $($Result.Output)"
       $Calls = @([IO.File]::ReadAllLines($Log))
       Assert-True ($Calls.Count -eq 1) "$Name retried, fell back, or downloaded source"
       Assert-True ($Calls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3") "$Name did not use the bounded Release API"
