@@ -1,5 +1,6 @@
 param(
   [switch]$KeyOnly,
+  [switch]$Offline,
   [switch]$Interactive,
   [switch]$ConfigureCodex,
   [switch]$ForceConfig,
@@ -16,6 +17,7 @@ $KeyOnlyRepo = "Schyler0427/image2-mcp"
 $BoundInstallerParameters = @{} + $PSBoundParameters
 $RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:KeyOnlyApiKey = ""
+$script:KeyOnlyGeminiApiKey = ""
 
 function Enable-Image2Tls12 {
   [Net.ServicePointManager]::SecurityProtocol =
@@ -29,8 +31,9 @@ Usage: powershell -ExecutionPolicy Bypass -File .\install.ps1 [options]
 Install and optionally configure the Image2 MCP server for Codex on Windows.
 
 Options:
-  -KeyOnly          Prompt once for an API key and install the fixed Codex configuration.
-  -Interactive      Prompt for base URL and API key, then write .env.local.
+  -KeyOnly          Prompt for independent Image2 and Gemini API keys and install the fixed Codex configuration.
+  -Offline          Use the bundled binary with -KeyOnly; never download or build.
+  -Interactive      Prompt for base URL and optional fresh provider keys (at least one), then write .env.local.
   -ConfigureCodex   Append an image2 MCP server block to ~/.codex/config.toml.
   -ForceConfig      Replace existing [mcp_servers.image2] config block.
   -BaseUrl URL      Set OPENAI_IMAGE_BASE_URL in .env.local or Codex config.
@@ -40,7 +43,9 @@ Options:
   -Help             Show this help.
 
 Environment:
-  OPENAI_IMAGE_API_KEY   Required by Codex at runtime, and required for -Smoke.
+  OPENAI_IMAGE_API_KEY   Image2 credential; required for Image2 requests and -Smoke.
+  GEMINI_IMAGE_API_KEY   Independent Gemini credential; required for Gemini requests.
+  GEMINI_IMAGE_BASE_URL  Gemini API base URL; defaults to https://api.schyler.top.
   OPENAI_IMAGE_BASE_URL  Optional default base URL; defaults to https://api.schyler.top.
   IMAGE2_MCP_REPO        Optional GitHub repo slug, for example owner/image2-mcp.
 "@
@@ -149,14 +154,16 @@ function Move-FileAtomically([string]$Source, [string]$Destination) {
   }
 }
 
-function Write-KeyOnlyEnvironment {
+function Write-KeyOnlyEnvironment([string]$ImageBaseUrl = $KeyOnlyBaseUrl) {
   $Target = Join-Path $RepoDir ".env.local"
   $Temp = Join-Path $RepoDir (".env.local.tmp." + [Guid]::NewGuid().ToString("N"))
   $Encoding = New-Object Text.UTF8Encoding($false)
   try {
     $Lines = @(
-      "OPENAI_IMAGE_BASE_URL=$(ConvertTo-DotEnvValue $KeyOnlyBaseUrl)",
-      "OPENAI_IMAGE_API_KEY=$(ConvertTo-DotEnvValue $script:KeyOnlyApiKey)"
+      "OPENAI_IMAGE_BASE_URL=$(ConvertTo-DotEnvValue $ImageBaseUrl)",
+      "OPENAI_IMAGE_API_KEY=$(ConvertTo-DotEnvValue $script:KeyOnlyApiKey)",
+      "GEMINI_IMAGE_BASE_URL=$(ConvertTo-DotEnvValue $ImageBaseUrl)",
+      "GEMINI_IMAGE_API_KEY=$(ConvertTo-DotEnvValue $script:KeyOnlyGeminiApiKey)"
     )
     [IO.File]::WriteAllLines($Temp, $Lines, $Encoding)
     Set-RestrictedFileAcl $Temp
@@ -169,14 +176,27 @@ function Write-KeyOnlyEnvironment {
   }
 }
 
-function Read-KeyOnce {
+function Assert-ImageApiKey([AllowNull()][string]$Value, [string]$Name) {
+  if ($null -eq $Value) { throw "missing API key input line" }
+  if ($Value.Contains("`r") -or $Value.Contains("`n") -or $Value.Contains([char]0)) {
+    throw "$Name must be one line and cannot contain NUL"
+  }
+  if ([Text.Encoding]::UTF8.GetByteCount($Value) -gt 1024) {
+    throw "$Name cannot exceed 1024 UTF-8 bytes"
+  }
+}
+
+function Read-ImageApiKey([string]$Name) {
   $InputIsRedirected = [Console]::IsInputRedirected
   if ($InputIsRedirected) {
-    Write-Host -NoNewline "OPENAI_IMAGE_API_KEY: "
+    Write-Host -NoNewline ($Name + ": ")
     $Value = [Console]::In.ReadLine()
+    if ($null -eq $Value) {
+      throw "supply both API key input lines; either line may be empty"
+    }
     Write-Host ""
   } else {
-    $Secret = Read-Host "OPENAI_IMAGE_API_KEY" -AsSecureString
+    $Secret = Read-Host $Name -AsSecureString
     $Pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret)
     try {
       $Value = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Pointer)
@@ -185,29 +205,24 @@ function Read-KeyOnce {
     }
   }
 
-  if ($InputIsRedirected -and $Value.Length -gt 0 -and [int]$Value[0] -eq 0xFEFF) {
+  if ($InputIsRedirected -and $null -ne $Value -and $Value.Length -gt 0 -and [int]$Value[0] -eq 0xFEFF) {
     $Value = $Value.Substring(1)
   }
-  if ([string]::IsNullOrWhiteSpace($Value)) {
-    throw "API Key cannot be blank"
-  }
-  if ($Value.Contains("`r") -or $Value.Contains("`n") -or $Value.Contains([char]0)) {
-    throw "API Key must be one line and cannot contain NUL"
-  }
-  $script:KeyOnlyApiKey = $Value
+  Assert-ImageApiKey $Value $Name
+  if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+  return $Value
 }
 
-function Test-ExistingKeyOnlyEnvironment {
-  $Path = Join-Path $RepoDir ".env.local"
-  if (-not (Test-Path (Join-Path $RepoDir ".image2-mcp-managed") -PathType Leaf)) { return $false }
-  if (-not (Test-Path $Path -PathType Leaf)) { return $false }
-  foreach ($Line in Get-Content -LiteralPath $Path) {
-    if ($Line -match '^\s*OPENAI_IMAGE_API_KEY\s*=\s*(.+?)\s*$') {
-      $Candidate = $Matches[1].Trim()
-      if (-not [string]::IsNullOrWhiteSpace($Candidate) -and $Candidate -ne '""' -and $Candidate -ne "''") { return $true }
-    }
+function Read-KeyOnce {
+  # Always request both input lines (either may be blank), including upgrades. Never use shell
+  # credentials or old .env.local values as a fallback for either provider.
+  $ImageApiKey = Read-ImageApiKey "OPENAI_IMAGE_API_KEY"
+  $GeminiApiKey = Read-ImageApiKey "GEMINI_IMAGE_API_KEY"
+  if ([string]::IsNullOrWhiteSpace($ImageApiKey) -and [string]::IsNullOrWhiteSpace($GeminiApiKey)) {
+    throw "at least one Image2 or Gemini API Key is required"
   }
-  return $false
+  $script:KeyOnlyApiKey = $ImageApiKey
+  $script:KeyOnlyGeminiApiKey = $GeminiApiKey
 }
 
 function Get-GitHubRepoSlug {
@@ -241,7 +256,7 @@ function Install-Prebuilt {
   $Arch = Get-ArchName
   $Asset = "image2-mcp_windows_${Arch}.zip"
   $Url = if ($KeyOnly) {
-    "https://github.com/${Repo}/releases/download/v0.3.3/${Asset}"
+    "https://github.com/${Repo}/releases/download/v0.4.0/${Asset}"
   } else {
     "https://github.com/${Repo}/releases/latest/download/${Asset}"
   }
@@ -546,9 +561,8 @@ function Set-Image2CodexConfig([string]$ConfigFile) {
     if (([regex]::Matches($Generated, '(?m)^\[mcp_servers\.image2\]\r?$')).Count -ne 1) {
       throw "generated Codex config does not contain exactly one Image2 root table"
     }
-    if ($Generated.Contains("OPENAI_IMAGE_API_KEY")) {
-      throw "generated Codex config contains a forbidden API Key setting"
-    }
+    # The existing Image2 namespace is removed before this static block is
+    # appended. Other MCP providers may legitimately configure their own keys.
     if (-not $Generated.Contains($RunnerLine)) {
       throw "generated Codex config runner verification failed"
     }
@@ -595,6 +609,9 @@ function Stop-Image2VerificationProcess([Diagnostics.Process]$Process) {
     $Info.CreateNoWindow = $true
     $Info.RedirectStandardOutput = $true
     $Info.RedirectStandardError = $true
+    foreach ($KeyName in @("OPENAI_IMAGE_API_KEY", "GEMINI_IMAGE_API_KEY")) {
+      $Info.EnvironmentVariables.Remove($KeyName)
+    }
     $TreeKiller = [Diagnostics.Process]::Start($Info)
     if (-not $TreeKiller.WaitForExit(5000)) {
       $TreeKiller.Kill()
@@ -631,6 +648,11 @@ function Test-KeyOnlyInstall {
   $Info.RedirectStandardInput = $true
   $Info.RedirectStandardOutput = $true
   $Info.RedirectStandardError = $true
+  # The runner must load credentials from .env.local; do not pass installer
+  # credentials through this child-process environment.
+  foreach ($KeyName in @("OPENAI_IMAGE_API_KEY", "GEMINI_IMAGE_API_KEY")) {
+    $Info.EnvironmentVariables.Remove($KeyName)
+  }
   $Process = New-Object Diagnostics.Process
   $Process.StartInfo = $Info
   $Started = $false
@@ -658,7 +680,10 @@ function Test-KeyOnlyInstall {
   }
 
   Import-DotEnv (Join-Path $RepoDir ".env.local")
-  if ($env:OPENAI_IMAGE_BASE_URL -ne $KeyOnlyBaseUrl -or [string]::IsNullOrWhiteSpace($env:OPENAI_IMAGE_API_KEY)) {
+  if ($env:OPENAI_IMAGE_BASE_URL -ne $KeyOnlyBaseUrl -or
+      $env:GEMINI_IMAGE_BASE_URL -ne $KeyOnlyBaseUrl -or
+      ([string]::IsNullOrWhiteSpace($env:OPENAI_IMAGE_API_KEY) -and
+       [string]::IsNullOrWhiteSpace($env:GEMINI_IMAGE_API_KEY))) {
     throw "environment verification failed"
   }
   $ConfigText = [IO.File]::ReadAllText($Config)
@@ -668,9 +693,6 @@ function Test-KeyOnlyInstall {
   $ExpectedRunner = ConvertTo-TomlBasicString $Runner
   if (-not $ConfigText.Contains($ExpectedRunner)) {
     throw "Codex config runner verification failed"
-  }
-  if ($ConfigText.Contains("OPENAI_IMAGE_API_KEY")) {
-    throw "Codex config contains a forbidden API Key setting"
   }
   Write-Host "Verification: OK"
 }
@@ -682,25 +704,22 @@ function Write-InteractiveEnvironment {
     $script:BaseUrl = $InputBaseUrl
   }
 
-  if ($env:OPENAI_IMAGE_API_KEY) {
-    $SaveCurrent = Read-Host "OPENAI_IMAGE_API_KEY is already set in this shell. Save it to .env.local? [y/N]"
-    $ApiKey = if ($SaveCurrent -match '^[Yy]$') { $env:OPENAI_IMAGE_API_KEY } else { "" }
-  } else {
-    $Secret = Read-Host "OPENAI_IMAGE_API_KEY" -AsSecureString
-    $Pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret)
-    try {
-      $ApiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Pointer)
-    } finally {
-      [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Pointer)
-    }
-  }
-
-  $Lines = @("OPENAI_IMAGE_BASE_URL=$(ConvertTo-DotEnvValue $BaseUrl)")
-  if (-not [string]::IsNullOrWhiteSpace($ApiKey)) {
-    $Lines += "OPENAI_IMAGE_API_KEY=$(ConvertTo-DotEnvValue $ApiKey)"
-  }
-  [IO.File]::WriteAllLines((Join-Path $RepoDir ".env.local"), $Lines, (New-Object Text.UTF8Encoding($false)))
+  Read-KeyOnce
+  Write-KeyOnlyEnvironment $BaseUrl
   Write-Host "==> Wrote local environment file: $RepoDir\.env.local"
+}
+
+function Invoke-WithoutImageCredentials([scriptblock]$Action) {
+  $PreviousImageKey = $env:OPENAI_IMAGE_API_KEY
+  $PreviousGeminiKey = $env:GEMINI_IMAGE_API_KEY
+  try {
+    $env:OPENAI_IMAGE_API_KEY = $null
+    $env:GEMINI_IMAGE_API_KEY = $null
+    & $Action
+  } finally {
+    $env:OPENAI_IMAGE_API_KEY = $PreviousImageKey
+    $env:GEMINI_IMAGE_API_KEY = $PreviousGeminiKey
+  }
 }
 
 function Invoke-Installer {
@@ -709,8 +728,12 @@ function Invoke-Installer {
     return
   }
 
+  if ($Offline -and -not $KeyOnly) {
+    throw "-Offline requires -KeyOnly"
+  }
+
   if ($KeyOnly) {
-    $Conflicts = @($BoundInstallerParameters.Keys | Where-Object { $_ -notin @("KeyOnly") })
+    $Conflicts = @($BoundInstallerParameters.Keys | Where-Object { $_ -notin @("KeyOnly", "Offline") })
     if ($Conflicts.Count -gt 0) {
       throw "-KeyOnly cannot be combined with other options: $($Conflicts -join ', ')"
     }
@@ -727,47 +750,57 @@ function Invoke-Installer {
 
   Push-Location $RepoDir
   try {
+    if ($Offline) {
+      . (Join-Path $RepoDir "scripts\offline-binary.ps1")
+      Test-OfflineBinary $RepoDir
+    }
     if ($ConfigureCodex) {
       Assert-SupportedImage2Config (Join-Path $HOME ".codex\config.toml")
     }
     if ($KeyOnly) {
-      if (Test-ExistingKeyOnlyEnvironment) {
-        Write-Host "==> Existing API Key configuration found; reusing it."
-        Import-DotEnv (Join-Path $RepoDir ".env.local")
-        Set-RestrictedFileAcl (Join-Path $RepoDir ".env.local")
-      } else {
-        Read-KeyOnce
-        Write-KeyOnlyEnvironment
-        $env:OPENAI_IMAGE_API_KEY = $script:KeyOnlyApiKey
-      }
+      Read-KeyOnce
+      Write-KeyOnlyEnvironment
+      $env:OPENAI_IMAGE_API_KEY = $script:KeyOnlyApiKey
       $env:OPENAI_IMAGE_BASE_URL = $KeyOnlyBaseUrl
+      $env:GEMINI_IMAGE_API_KEY = $script:KeyOnlyGeminiApiKey
+      $env:GEMINI_IMAGE_BASE_URL = $KeyOnlyBaseUrl
     } else {
       if ($Interactive) {
         Write-InteractiveEnvironment
       }
-      Import-DotEnv (Join-Path $RepoDir ".env.local")
-      Import-DotEnv (Join-Path $RepoDir ".env")
+      if (Test-Path (Join-Path $RepoDir ".env.local")) {
+        Import-DotEnv (Join-Path $RepoDir ".env.local")
+      } else {
+        Import-DotEnv (Join-Path $RepoDir ".env")
+      }
       if ($env:OPENAI_IMAGE_BASE_URL) {
         $script:BaseUrl = $env:OPENAI_IMAGE_BASE_URL
       }
     }
 
     New-Item -ItemType Directory -Force -Path (Join-Path $RepoDir "dist") | Out-Null
-    $GoAvailable = [bool](Get-Command go -ErrorAction SilentlyContinue)
-    if ($Prebuilt -or -not $GoAvailable) {
-      if (-not $GoAvailable -and -not $SkipTests) {
-        Write-Host "==> Go is not installed; skipping source tests and using prebuilt binary"
+    $GoAvailable = $false
+    if (-not $Offline) {
+      $GoAvailable = [bool](Get-Command go -ErrorAction SilentlyContinue)
+    }
+    Invoke-WithoutImageCredentials {
+      if ($Offline) {
+        Write-Host "==> Using bundled offline binary"
+      } elseif ($Prebuilt -or -not $GoAvailable) {
+        if (-not $GoAvailable -and -not $SkipTests) {
+          Write-Host "==> Go is not installed; skipping source tests and using prebuilt binary"
+        }
+        Install-Prebuilt
+      } else {
+        if (-not $SkipTests) {
+          Write-Host "==> Running tests"
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw "go test failed" }
+        }
+        Write-Host "==> Building dist/image2-mcp.exe"
+        go build -o ".\dist\image2-mcp.exe" ".\cmd\image2-mcp"
+        if ($LASTEXITCODE -ne 0) { throw "go build failed" }
       }
-      Install-Prebuilt
-    } else {
-      if (-not $SkipTests) {
-        Write-Host "==> Running tests"
-        go test ./...
-        if ($LASTEXITCODE -ne 0) { throw "go test failed" }
-      }
-      Write-Host "==> Building dist/image2-mcp.exe"
-      go build -o ".\dist\image2-mcp.exe" ".\cmd\image2-mcp"
-      if ($LASTEXITCODE -ne 0) { throw "go build failed" }
     }
 
     if ($Smoke) {
@@ -778,10 +811,18 @@ function Invoke-Installer {
         throw "-Smoke requires OPENAI_IMAGE_API_KEY or .env.local"
       }
       Write-Host "==> Running real image-generation smoke test"
-      $env:RUN_IMAGE2_SMOKE = "1"
-      $env:OPENAI_IMAGE_BASE_URL = $BaseUrl
-      & go @("test", "./internal/image2", "-run", "TestRealGenerateImage2Smoke", "-count=1", "-v")
-      if ($LASTEXITCODE -ne 0) { throw "image generation smoke test failed" }
+      $PreviousSmoke = $env:RUN_IMAGE2_SMOKE
+      $PreviousGeminiKey = $env:GEMINI_IMAGE_API_KEY
+      try {
+        $env:RUN_IMAGE2_SMOKE = "1"
+        $env:GEMINI_IMAGE_API_KEY = $null
+        $env:OPENAI_IMAGE_BASE_URL = $BaseUrl
+        & go @("test", "./internal/image2", "-run", "TestRealGenerateImage2Smoke", "-count=1", "-v")
+        if ($LASTEXITCODE -ne 0) { throw "image generation smoke test failed" }
+      } finally {
+        $env:RUN_IMAGE2_SMOKE = $PreviousSmoke
+        $env:GEMINI_IMAGE_API_KEY = $PreviousGeminiKey
+      }
     }
 
     if ($ConfigureCodex) {
@@ -797,7 +838,7 @@ function Invoke-Installer {
     Write-Host "Runner: $RepoDir\scripts\run-image2-mcp.ps1"
     Write-Host "Base URL: $BaseUrl"
     if (-not $KeyOnly -and -not (Test-Path ".env.local") -and -not $env:OPENAI_IMAGE_API_KEY) {
-      Write-Host "Note: set OPENAI_IMAGE_API_KEY or run .\install.ps1 -Interactive before Codex uses the MCP server."
+      Write-Host "Note: run .\install.ps1 -Interactive to configure independent Image2 and Gemini API keys before using image tools."
     }
   } finally {
     Pop-Location

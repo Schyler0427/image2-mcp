@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+unset OPENAI_IMAGE_API_KEY GEMINI_IMAGE_API_KEY
 
 if [[ -f "${repo_dir}/.env.local" ]]; then
   set -a

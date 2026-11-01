@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"image2-mcp/internal/image2"
@@ -16,7 +18,7 @@ import (
 // already been loaded. Start the binary directly to avoid an intermediary shell
 // surviving a timed-out handshake, especially on Windows.
 func verifyInstallation(outputDir string) error {
-	if _, err := image2.NewFromEnv(outputDir); err != nil {
+	if err := validateConfiguredProviders(outputDir); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -30,6 +32,31 @@ func verifyInstallation(outputDir string) error {
 		return err
 	}
 	fmt.Println("MCP verification: OK")
+	return nil
+}
+
+func validateConfiguredProviders(outputDir string) error {
+	image2Configured := strings.TrimSpace(os.Getenv("OPENAI_IMAGE_API_KEY")) != ""
+	geminiConfigured := strings.TrimSpace(os.Getenv("GEMINI_IMAGE_API_KEY")) != ""
+	if !image2Configured && !geminiConfigured {
+		return fmt.Errorf("at least one of OPENAI_IMAGE_API_KEY or GEMINI_IMAGE_API_KEY is required")
+	}
+	if image2Configured {
+		if baseURL := strings.TrimSpace(os.Getenv("OPENAI_IMAGE_BASE_URL")); baseURL != "" {
+			parsed, err := url.Parse(baseURL)
+			if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+				return fmt.Errorf("Image2 base URL must be an absolute HTTP(S) URL without credentials, query, or fragment")
+			}
+		}
+		if _, err := image2.NewFromEnv(outputDir); err != nil {
+			return err
+		}
+	}
+	if geminiConfigured {
+		if _, err := newGeminiImageClient(outputDir); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -55,7 +82,7 @@ func verifyMCPProcess(ctx context.Context, command *exec.Cmd) error {
 	for _, tool := range tools.Tools {
 		found[tool.Name] = true
 	}
-	for _, name := range []string{"generate_image2", "edit_image2"} {
+	for _, name := range []string{"generate_image", "edit_image", "generate_image2", "edit_image2"} {
 		if !found[name] {
 			return fmt.Errorf("MCP missing required tool: %s", name)
 		}

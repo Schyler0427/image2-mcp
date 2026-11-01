@@ -12,9 +12,10 @@ run_smoke=0
 prefer_prebuilt=0
 force_config=0
 key_only=0
+offline=0
 key_only_api_key=''
+key_only_gemini_key=''
 key_input_echo_disabled=0
-key_input_file=''
 key_only_behavior_flags=()
 help_requested=0
 
@@ -25,8 +26,9 @@ Usage: ./install.sh [options]
 Install and optionally configure the Image2 MCP server for Codex.
 
 Options:
-  --key-only             Prompt once for an API key and install the fixed Codex configuration.
-  --interactive          Prompt for base URL and API key, then write .env.local.
+  --key-only             Prompt for separate Image2 and Gemini keys and install the fixed Codex configuration.
+  --offline              Use the bundled binary with --key-only; never download or build.
+  --interactive          Prompt for base URL and optional provider keys (at least one), then write .env.local.
   --configure-codex      Append an image2 MCP server block to ~/.codex/config.toml.
   --force-config         Replace existing [mcp_servers.image2] config block.
   --base-url URL         Set OPENAI_IMAGE_BASE_URL in the Codex MCP config.
@@ -38,6 +40,8 @@ Options:
 Environment:
   OPENAI_IMAGE_API_KEY   Required by Codex at runtime, and required for --smoke.
   OPENAI_IMAGE_BASE_URL  Optional default base URL; defaults to https://api.schyler.top.
+  GEMINI_IMAGE_API_KEY   Separate Gemini image-generation key.
+  GEMINI_IMAGE_BASE_URL  Optional Gemini gateway base URL.
   IMAGE2_MCP_REPO        Optional GitHub repo slug, for example owner/image2-mcp.
 EOF
 }
@@ -103,7 +107,7 @@ download_prebuilt() {
   }
   asset="image2-mcp_${os}_${arch}.tar.gz"
   if [[ "$key_only" -eq 1 ]]; then
-    url="https://github.com/${repo}/releases/download/v0.3.3/${asset}"
+    url="https://github.com/${repo}/releases/download/v0.4.0/${asset}"
   else
     url="https://github.com/${repo}/releases/latest/download/${asset}"
   fi
@@ -187,85 +191,85 @@ restore_terminal_echo() {
 
 cleanup_key_input() {
   restore_terminal_echo
-  if [[ -n "${key_input_file:-}" ]]; then
-    rm -f -- "$key_input_file"
-    key_input_file=''
-  fi
 }
 
-raw_line_contains_nul() {
-  LC_ALL=C od -An -tx1 "$1" | awk '
-    {
-      for (field = 1; field <= NF; field++) {
-        if ($field == "00") found = 1
-      }
-    }
-    END { exit found ? 0 : 1 }
-  '
+key_has_non_whitespace() {
+  local probe="$1" whitespace LC_ALL=C
+  # Match Unicode White_Space used by the provider clients, without requiring
+  # Python or a Unicode-aware shell locale on an offline customer machine.
+  for whitespace in $'\x09' $'\x0b' $'\x0c' ' ' $'\xc2\x85' $'\xc2\xa0' \
+    $'\xe1\x9a\x80' $'\xe2\x80\x80' $'\xe2\x80\x81' $'\xe2\x80\x82' \
+    $'\xe2\x80\x83' $'\xe2\x80\x84' $'\xe2\x80\x85' $'\xe2\x80\x86' \
+    $'\xe2\x80\x87' $'\xe2\x80\x88' $'\xe2\x80\x89' $'\xe2\x80\x8a' \
+    $'\xe2\x80\xa8' $'\xe2\x80\xa9' $'\xe2\x80\xaf' $'\xe2\x81\x9f' $'\xe3\x80\x80'; do
+    probe="${probe//"$whitespace"/}"
+  done
+  [[ -n "$probe" ]]
 }
 
-read_key_once() {
-  local value
-  key_input_file="$(mktemp "${TMPDIR:-/tmp}/image2-mcp-key.XXXXXX")"
-  chmod 600 "$key_input_file"
+read_key_line() {
+  local name="$1" value='' byte char LC_ALL=C
+  printf '%s: ' "$name" >&2
+  while :; do
+    # dd consumes exactly one byte, so a pipe cannot buffer away the next key.
+    # Inspect bytes before Bash reads them; Bash otherwise silently drops NUL.
+    byte="$(dd bs=1 count=1 2>/dev/null | od -An -tu1)" || return 1
+    byte="${byte//[[:space:]]/}"
+    case "$byte" in
+      '') echo 'error: supply both API key input lines; either line may be empty' >&2; return 1 ;;
+      0) echo 'error: API Key must be one line and cannot contain NUL' >&2; return 1 ;;
+      10) break ;;
+      13) echo 'error: API Key must be one line' >&2; return 1 ;;
+    esac
+    printf -v char "\\$(printf '%03o' "$byte")"
+    value+="$char"
+    [[ ${#value} -le 1024 ]] || { echo 'error: API Key must be one line of at most 1024 bytes' >&2; return 1; }
+  done
+  printf '\n' >&2
+  key_has_non_whitespace "$value" || value=''
+  key_read_value="$value"
+}
+
+read_keys_once() {
+  local image_key gemini_key key_read_value=''
+  unset OPENAI_IMAGE_API_KEY GEMINI_IMAGE_API_KEY
   trap cleanup_key_input EXIT HUP INT TERM
-  printf 'OPENAI_IMAGE_API_KEY: ' >&2
   if [[ -t 0 ]]; then
     stty -echo
     key_input_echo_disabled=1
   fi
-  if ! head -n 1 >"$key_input_file"; then
+  if ! read_key_line OPENAI_IMAGE_API_KEY; then
     cleanup_key_input
     trap - EXIT HUP INT TERM
-    printf '\nerror: API Key input was not received\n' >&2
     return 1
   fi
-  restore_terminal_echo
-  printf '\n' >&2
-  if raw_line_contains_nul "$key_input_file"; then
+  image_key="$key_read_value"
+  if ! read_key_line GEMINI_IMAGE_API_KEY; then
     cleanup_key_input
     trap - EXIT HUP INT TERM
-    echo 'error: API Key must be one line and cannot contain NUL' >&2
     return 1
   fi
-  if ! IFS= read -r value <"$key_input_file"; then
-    cleanup_key_input
-    trap - EXIT HUP INT TERM
-    echo 'error: API Key input was not received' >&2
-    return 1
-  fi
+  gemini_key="$key_read_value"
   cleanup_key_input
   trap - EXIT HUP INT TERM
-  [[ "$value" == *$'\r'* ]] && { echo 'error: API Key must be one line' >&2; return 1; }
-  [[ "$value" =~ [^[:space:]] ]] || { echo 'error: API Key cannot be blank' >&2; return 1; }
-  key_only_api_key="$value"
+  [[ -n "$image_key" || -n "$gemini_key" ]] || { echo 'error: at least one Image2 or Gemini API Key is required' >&2; return 1; }
+  key_only_api_key="$image_key"
+  key_only_gemini_key="$gemini_key"
+  export -n key_only_api_key key_only_gemini_key
 }
 
 write_key_only_env() {
-  local target="${repo_dir}/.env.local" tmp
+  local target="${repo_dir}/.env.local" tmp image_base_url="${1:-$readonly_key_only_base_url}"
   tmp="$(mktemp "${target}.tmp.XXXXXX")"
   chmod 600 "$tmp"
   {
-    printf 'OPENAI_IMAGE_BASE_URL=%q\n' "$readonly_key_only_base_url"
+    printf 'OPENAI_IMAGE_BASE_URL=%q\n' "$image_base_url"
     printf 'OPENAI_IMAGE_API_KEY=%q\n' "$key_only_api_key"
+    printf 'GEMINI_IMAGE_BASE_URL=%q\n' "$image_base_url"
+    printf 'GEMINI_IMAGE_API_KEY=%q\n' "$key_only_gemini_key"
   } >"$tmp"
   mv -f "$tmp" "$target"
   chmod 600 "$target"
-}
-
-has_existing_key_only_environment() {
-  local env_file="${repo_dir}/.env.local"
-  [[ -f "${repo_dir}/.image2-mcp-managed" && ! -L "${repo_dir}/.image2-mcp-managed" ]] || return 1
-  [[ -f "$env_file" && ! -L "$env_file" ]] || return 1
-  awk '
-    /^[[:space:]]*OPENAI_IMAGE_API_KEY[[:space:]]*=/ {
-      value = $0
-      sub(/^[^=]*=/, "", value)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-      if (value != "" && value != "\"\"" && value != "''") found = 1
-    }
-    END { exit(found ? 0 : 1) }
-  ' "$env_file"
 }
 
 remove_image2_config_namespace() {
@@ -514,7 +518,9 @@ replace_image2_config() {
     printf 'tool_timeout_sec = 600\n'
   } >>"$tmp"
   root_count="$(grep -c '^\[mcp_servers\.image2\]$' "$tmp" || true)"
-  if [[ "$root_count" -ne 1 ]] || grep -q 'OPENAI_IMAGE_API_KEY' "$tmp"; then
+  # The previous Image2 namespace was removed above; the generated block below
+  # is static and never contains keys. Other MCP providers may have their own.
+  if [[ "$root_count" -ne 1 ]]; then
     echo "error: generated Codex config verification failed" >&2
     rm -f "$tmp"
     return 1
@@ -549,7 +555,7 @@ verify_key_only_install() {
   local verify_log="${repo_dir}/.verify-image2-mcp.log"
   [[ -s "$binary" && -x "$binary" ]] || { echo 'error: binary verification failed' >&2; return 1; }
   [[ -x "$runner" ]] || { echo 'error: runner verification failed' >&2; return 1; }
-  "$runner" --verify-mcp </dev/null >"$verify_log" 2>/dev/null &
+  env -u OPENAI_IMAGE_API_KEY -u GEMINI_IMAGE_API_KEY "$runner" --verify-mcp </dev/null >"$verify_log" 2>/dev/null &
   verify_pid=$!
   (
     sleeper=''
@@ -569,16 +575,14 @@ verify_key_only_install() {
     return 1
   fi
   rm -f "$verify_log"
-  [[ "$OPENAI_IMAGE_BASE_URL" == "$readonly_key_only_base_url" && -n "$OPENAI_IMAGE_API_KEY" ]] || {
+  [[ "$OPENAI_IMAGE_BASE_URL" == "$readonly_key_only_base_url" &&
+     "$GEMINI_IMAGE_BASE_URL" == "$readonly_key_only_base_url" &&
+     ( -n "$OPENAI_IMAGE_API_KEY" || -n "$GEMINI_IMAGE_API_KEY" ) ]] || {
     echo 'error: environment verification failed' >&2
     return 1
   }
   [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$config" || true)" -eq 1 ]] || {
     echo 'error: Codex config verification failed' >&2
-    return 1
-  }
-  ! grep -q 'OPENAI_IMAGE_API_KEY' "$config" || {
-    echo 'error: Codex config contains forbidden key setting' >&2
     return 1
   }
   echo 'Verification: OK'
@@ -589,6 +593,10 @@ parse_args() {
     case "$1" in
       --key-only)
         key_only=1
+        shift
+        ;;
+      --offline)
+        offline=1
         shift
         ;;
       --configure-codex)
@@ -643,6 +651,10 @@ parse_args() {
         ;;
     esac
   done
+  if [[ "$offline" -eq 1 && "$key_only" -ne 1 ]]; then
+    echo 'error: --offline requires --key-only' >&2
+    return 2
+  fi
   if [[ "$key_only" -eq 1 && "${#key_only_behavior_flags[@]}" -gt 0 ]]; then
     echo "error: --key-only cannot be combined with ${key_only_behavior_flags[*]}" >&2
     return 2
@@ -662,40 +674,15 @@ apply_mode_defaults() {
 }
 
 write_interactive_env() {
-  local input_base_url current_key save_current_key input_api_key
+  local input_base_url
   echo "==> Interactive configuration"
   read -r -p "OPENAI_IMAGE_BASE_URL [${base_url}]: " input_base_url
   if [[ -n "${input_base_url}" ]]; then
     base_url="${input_base_url}"
   fi
 
-  current_key="${OPENAI_IMAGE_API_KEY:-}"
-  if [[ -n "$current_key" ]]; then
-    read -r -p "OPENAI_IMAGE_API_KEY is already set in this shell. Save it to .env.local? [y/N]: " save_current_key
-    if [[ "$save_current_key" =~ ^[Yy]$ ]]; then
-      input_api_key="$current_key"
-    else
-      input_api_key=''
-    fi
-  else
-    printf 'OPENAI_IMAGE_API_KEY: '
-    if [[ -t 0 ]]; then
-      stty -echo
-      read -r input_api_key
-      stty echo
-    else
-      read -r input_api_key
-    fi
-    printf '\n'
-  fi
-
-  {
-    printf 'OPENAI_IMAGE_BASE_URL=%q\n' "$base_url"
-    if [[ -n "${input_api_key:-}" ]]; then
-      printf 'OPENAI_IMAGE_API_KEY=%q\n' "$input_api_key"
-    fi
-  } > "${repo_dir}/.env.local"
-  chmod 600 "${repo_dir}/.env.local"
+  read_keys_once
+  write_key_only_env "$base_url"
   echo "==> Wrote local environment file: ${repo_dir}/.env.local"
 }
 
@@ -703,15 +690,17 @@ load_legacy_environment() {
   if [[ -f "${repo_dir}/.env.local" ]]; then
     set -a
     # shellcheck disable=SC1091
-    source "${repo_dir}/.env.local"
+  source "${repo_dir}/.env.local"
     set +a
-  fi
-  if [[ -f "${repo_dir}/.env" ]]; then
+  elif [[ -f "${repo_dir}/.env" ]]; then
     set -a
     # shellcheck disable=SC1091
     source "${repo_dir}/.env"
     set +a
   fi
+  # Keep credentials available to explicit smoke tests without exporting them
+  # to download, archive, test, or build subprocesses.
+  export -n OPENAI_IMAGE_API_KEY GEMINI_IMAGE_API_KEY
   if [[ -n "${OPENAI_IMAGE_BASE_URL:-}" ]]; then
     base_url="${OPENAI_IMAGE_BASE_URL}"
   fi
@@ -720,22 +709,22 @@ load_legacy_environment() {
 run_install() {
   local go_available
   cd "$repo_dir"
+  if [[ "$offline" -eq 1 ]]; then
+    source "$repo_dir/scripts/offline-binary.sh"
+    verify_offline_binary "$repo_dir" || return 1
+  fi
   if [[ "$configure_codex" -eq 1 ]]; then
     validate_codex_config_before_install
   fi
   mkdir -p dist
 
   if [[ "$key_only" -eq 1 ]]; then
-    if has_existing_key_only_environment; then
-      echo '==> Existing API Key configuration found; reusing it.'
-      load_legacy_environment
-      key_only_api_key="${OPENAI_IMAGE_API_KEY}"
-    else
-      read_key_once
-      write_key_only_env
-    fi
+    read_keys_once
+    write_key_only_env
     export OPENAI_IMAGE_BASE_URL="$readonly_key_only_base_url"
-    export OPENAI_IMAGE_API_KEY="$key_only_api_key"
+    OPENAI_IMAGE_API_KEY="$key_only_api_key"
+    export GEMINI_IMAGE_BASE_URL="$readonly_key_only_base_url"
+    GEMINI_IMAGE_API_KEY="$key_only_gemini_key"
   else
     if [[ "$interactive" -eq 1 ]]; then
       write_interactive_env
@@ -744,11 +733,14 @@ run_install() {
   fi
 
   go_available=0
-  if command -v go >/dev/null 2>&1; then
+  if [[ "$offline" -eq 0 ]] && command -v go >/dev/null 2>&1; then
     go_available=1
   fi
 
-  if [[ "$prefer_prebuilt" -eq 1 || "$go_available" -eq 0 ]]; then
+  if [[ "$offline" -eq 1 ]]; then
+    echo '==> Using bundled offline binary'
+    chmod +x "$repo_dir/dist/image2-mcp"
+  elif [[ "$prefer_prebuilt" -eq 1 || "$go_available" -eq 0 ]]; then
     if [[ "$run_tests" -eq 1 && "$go_available" -eq 0 ]]; then
       echo "==> Go is not installed; skipping source tests and using prebuilt binary"
     fi
@@ -772,7 +764,7 @@ run_install() {
       return 1
     fi
     echo '==> Running real image-generation smoke test'
-    RUN_IMAGE2_SMOKE=1 OPENAI_IMAGE_BASE_URL="$base_url" go test ./internal/image2 -run TestRealGenerateImage2Smoke -count=1 -v
+    RUN_IMAGE2_SMOKE=1 OPENAI_IMAGE_API_KEY="$OPENAI_IMAGE_API_KEY" OPENAI_IMAGE_BASE_URL="$base_url" go test ./internal/image2 -run TestRealGenerateImage2Smoke -count=1 -v
   fi
 
   if [[ "$configure_codex" -eq 1 ]]; then
@@ -788,7 +780,7 @@ run_install() {
   echo "Runner: ${repo_dir}/scripts/run-image2-mcp.sh"
   echo "Base URL: ${base_url}"
   if [[ "$key_only" -eq 0 && ! -f "${repo_dir}/.env.local" && -z "${OPENAI_IMAGE_API_KEY:-}" ]]; then
-    echo 'Note: set OPENAI_IMAGE_API_KEY or run ./install.sh --interactive before Codex uses the MCP server.'
+    echo 'Note: configure separate OPENAI_IMAGE_API_KEY and GEMINI_IMAGE_API_KEY values or run ./install.sh --interactive before Codex uses the MCP server.'
   fi
 }
 

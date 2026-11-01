@@ -7,13 +7,15 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"image2-mcp/internal/image2"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverVersion = "0.3.3"
+const serverVersion = "0.4.2"
+const binaryIdentity = "image2-mcp " + serverVersion + " offline-v1"
 
 type generateParams struct {
 	Prompt     string `json:"prompt" jsonschema:"Image prompt to generate."`
@@ -41,6 +43,10 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Printf("%s %s %s\n", binaryIdentity, runtime.GOOS, runtime.GOARCH)
+		return nil
+	}
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		return err
@@ -61,12 +67,12 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		Name:    "image2-mcp",
 		Version: serverVersion,
 	}, &mcp.ServerOptions{
-		Instructions: "Natural-language image requests such as \"帮我生成一张图\" automatically call generate_image2. You may explicitly say \"使用 image2\" to use these tools. For an existing image, photo, attachment, reference image, or mask request, call edit_image2 directly. Do not use Computer Use, browser navigation, screenshots, or generic file tools for the transformation. Preserve the user's task details, subject, style, pose, and composition. Pass all image paths in order; ~ paths are supported. The default is Image 2.0 unless a maintainer sets OPENAI_IMAGE_MODEL. Image 2.5 requests must pass version: \"2.5\" to the selected tool; natural-language requests such as \"用 2.5 生图\" select that version. Temporary API failures are already retried by the tool. Do not automatically repeat failed image calls or switch versions after an error. Do not ask the user for a Base URL, model ID, endpoint, Go, Git, or admin permission. The tools generate or edit PNG files and return the local file path.",
+		Instructions: "Natural-language image requests such as \"帮我生成一张图\" call generate_image. The default is Image2 (Image 2.0), model: \"image2\". Only explicit 使用 Gemini 生图 / 香蕉生图 / banana 生图 requests select model: \"gemini\" (Gemini 3.1 Flash Image). User phrases \"使用 image2\" or Image2 select model: \"image2\" (Image 2.0), and Image2.5 / \"用 2.5 生图\" select model: \"image2.5\" (Image 2.5). For an existing image, photo, attachment or reference image, call edit_image directly with the same model selection. Masks are supported by Image2 only. Do not use Computer Use, browser navigation, screenshots, or generic file tools for the transformation. Preserve the user's task details, subject, style, pose, and composition. Pass all image paths in order; ~ paths are supported. Gemini uses aspect_ratio and image_size 1K/2K/4K. Image2 uses size and optional edit quality/mask_path. Legacy generate_image2/edit_image2 always use Image2; call edit_image2 only for an explicit Image2 compatibility request. Image 2.5 requests must pass version: \"2.5\" when using legacy tools. OPENAI_IMAGE_MODEL only controls the legacy Image2 default. Image2 and Gemini have independent image keys; never reuse another service key or silently switch models after an error. Do not automatically repeat failed image calls. Do not ask the user for a Base URL, model ID, endpoint, Go, Git, or admin permission. Tools save PNG images and return their local paths.",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "generate_image2",
-		Description: "Generate one PNG image. Natural-language requests automatically use this tool; omit version for the maintainer-configured default (Image 2.0 unless OPENAI_IMAGE_MODEL is explicitly set), or pass version: \"2.5\" exactly for Image 2.5. Save the result locally.",
+		Description: "Legacy Image2-only PNG generation. Use generate_image for general requests (default Image2). This compatibility tool uses Image 2.0 unless OPENAI_IMAGE_MODEL is set; Image 2.5 requests must pass version: \"2.5\".",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params generateParams) (*mcp.CallToolResult, image2.GenerateResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
@@ -95,7 +101,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "edit_image2",
-		Description: "Edit one or more local images with an optional mask. For an existing image, photo, attachment, reference image, or mask request, call edit_image2 directly. Do not use Computer Use, browser navigation, screenshots, or generic file tools for the transformation. Preserve the user's task details, subject, style, pose, and composition, and pass all image paths in order. ~ paths are supported. Omit version for the maintainer default (normally Image 2.0). For Image 2.5, pass version: \"2.5\" exactly, then save the result locally.",
+		Description: "Legacy Image2-only reference editing with optional mask. Use edit_image for general reference editing (default Image2). For an explicit Image2 compatibility request, call edit_image2 directly. Preserve the user's task details and source path order; ~ paths are supported. Do not use Computer Use. Omit version for legacy Image 2.0 default; Image 2.5 requires version: \"2.5\".",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, params editParams) (*mcp.CallToolResult, image2.EditResult, error) {
 		client, err := image2.NewFromEnv(outputDir)
 		if err != nil {
@@ -125,6 +131,7 @@ func newServer(projectRoot, outputDir string) *mcp.Server {
 		}, result, nil
 	})
 
+	registerUnifiedImageTools(server, outputDir)
 	return server
 }
 

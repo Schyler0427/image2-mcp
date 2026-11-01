@@ -3,9 +3,9 @@ set -euo pipefail
 
 readonly_repo_url='https://github.com/Schyler0427/image2-mcp.git'
 readonly_repo_slug='Schyler0427/image2-mcp'
-readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3'
-readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.tar.gz'
-readonly_source_root='image2-mcp-0.3.3'
+readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0'
+readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.tar.gz'
+readonly_source_root='image2-mcp-0.4.0'
 readonly_base_url='https://api.schyler.top'
 
 txn=''
@@ -117,16 +117,16 @@ expected = {
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     release = json.load(handle)
 assets = {item.get("name") for item in release.get("assets", []) if isinstance(item, dict)}
-if release.get("tag_name") != "v0.3.3" or release.get("draft") is not False or release.get("prerelease") is not False:
+if release.get("tag_name") != "v0.4.0" or release.get("draft") is not False or release.get("prerelease") is not False:
     raise SystemExit(1)
 if not expected.issubset(assets):
-    raise SystemExit("public v0.3.3 Release is missing required asset: " + ", ".join(sorted(expected - assets)))
+    raise SystemExit("public v0.4.0 Release is missing required asset: " + ", ".join(sorted(expected - assets)))
 PY
     return
   fi
   if command -v jq >/dev/null 2>&1; then
     jq -e '
-      .tag_name == "v0.3.3" and
+      .tag_name == "v0.4.0" and
       .draft == false and
       .prerelease == false and
       ([
@@ -138,7 +138,7 @@ PY
         "image2-mcp_windows_amd64.zip"
       ] - [.assets[].name] |
         if length == 0 then true
-        else error("public v0.3.3 Release is missing required asset: " + join(", "))
+        else error("public v0.4.0 Release is missing required asset: " + join(", "))
         end)
     ' "$json_file" >/dev/null
     return
@@ -156,9 +156,9 @@ PY
     return 1
   }
   # This function runs in a conditional gate, where Bash disables errexit.
-  grep -Fq '"tag_name":"v0.3.3"' "$compact" || { fail 'public Release tag is not v0.3.3'; return 1; }
-  grep -Fq '"draft":false' "$compact" || { fail 'public v0.3.3 Release is a draft'; return 1; }
-  grep -Fq '"prerelease":false' "$compact" || { fail 'public v0.3.3 Release is a prerelease'; return 1; }
+  grep -Fq '"tag_name":"v0.4.0"' "$compact" || { fail 'public Release tag is not v0.4.0'; return 1; }
+  grep -Fq '"draft":false' "$compact" || { fail 'public v0.4.0 Release is a draft'; return 1; }
+  grep -Fq '"prerelease":false' "$compact" || { fail 'public v0.4.0 Release is a prerelease'; return 1; }
   for asset in \
     'image2-mcp_darwin_arm64.tar.gz' \
     'image2-mcp_darwin_amd64.tar.gz' \
@@ -167,7 +167,7 @@ PY
     'image2-mcp_windows_arm64.zip' \
     'image2-mcp_windows_amd64.zip'; do
     grep -Fq "\"name\":\"$asset\"" "$compact" || {
-      fail "public v0.3.3 Release is missing required asset: $asset"
+      fail "public v0.4.0 Release is missing required asset: $asset"
       return 1
     }
   done
@@ -330,6 +330,64 @@ validate_staged_source() {
   done < <(find "$stage" -mindepth 1 -print0)
 }
 
+validate_offline_package() {
+  local package="$1"
+  validate_staged_source "$package"
+  [[ -f "$package/dist/image2-mcp" && ! -L "$package/dist/image2-mcp" ]] ||
+    fail 'offline package is missing a regular dist/image2-mcp'
+  [[ -z "$(find "$package" ! -type d ! -type f -print -quit)" ]] ||
+    fail 'offline package contains a non-regular path'
+  validate_offline_manifest "$package"
+}
+
+offline_sha256() {
+  local result
+  if command -v sha256sum >/dev/null 2>&1; then
+    result="$(sha256sum "$1")"
+    printf '%s\n' "${result%% *}"
+  elif command -v shasum >/dev/null 2>&1; then
+    result="$(shasum -a 256 "$1")"
+    printf '%s\n' "${result%% *}"
+  elif command -v openssl >/dev/null 2>&1; then
+    result="$(openssl dgst -sha256 "$1")"
+    printf '%s\n' "${result##* }"
+  else
+    fail 'SHA-256 verification requires sha256sum, shasum, or openssl'
+  fi
+}
+
+validate_offline_manifest() {
+  local package="$1" manifest="$1/OFFLINE_PACKAGE_MANIFEST"
+  local line kind hash bytes path extra index=0 actual total=0
+  local expected=(install.sh install.ps1 go.mod LICENSE scripts/setup.sh scripts/offline-binary.sh scripts/offline-binary.ps1 scripts/run-image2-mcp.sh scripts/run-image2-mcp.ps1 scripts/bootstrap-agent-install.sh scripts/bootstrap-agent-install.ps1 dist/image2-mcp)
+  [[ -f "$manifest" && ! -L "$manifest" ]] || fail 'offline package manifest is missing or unsafe'
+  [[ "$(wc -c < "$manifest")" -le 16384 ]] || fail 'offline package manifest is too large'
+  {
+    IFS= read -r line && [[ "$line" == 'IMAGE2_MCP_OFFLINE 1' ]] || fail 'unsupported offline package manifest'
+    IFS= read -r line && [[ "$line" == 'version 0.4.2' ]] || fail 'offline package version mismatch'
+    IFS= read -r line && [[ "$line" == "platform $(platform_name) $(arch_name)" ]] || fail 'offline package platform mismatch'
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$index" -lt "${#expected[@]}" ]] || fail 'offline package has extra manifest records'
+      IFS=' ' read -r kind hash bytes path extra <<<"$line"
+      [[ "$kind" == file && "$hash" =~ ^[0-9a-f]{64}$ && "$bytes" =~ ^(0|[1-9][0-9]{0,8})$ &&
+         -z "$extra" && "$path" == "${expected[$index]}" && "$line" == "file $hash $bytes $path" ]] ||
+        fail 'offline package has an invalid file record'
+      [[ -f "$package/$path" && ! -L "$package/$path" ]] || fail "offline package is missing $path"
+      actual="$(wc -c < "$package/$path" | tr -d '[:space:]')"
+      [[ "$actual" == "$bytes" ]] || fail "offline package file length mismatch: $path"
+      total=$((total + bytes))
+      [[ "$total" -le 134217728 ]] || fail 'offline package exceeds 128 MiB'
+      [[ "$(offline_sha256 "$package/$path")" == "$hash" ]] || fail "offline package SHA-256 mismatch: $path"
+      index=$((index + 1))
+    done
+  } < "$manifest"
+  [[ "$index" -eq "${#expected[@]}" ]] || fail 'offline package manifest is incomplete'
+  [[ "$(find "$package" -type f | wc -l | tr -d '[:space:]')" == 13 ]] || fail 'offline package contains unlisted files'
+  while IFS= read -r -d '' path; do
+    case "$path" in "$package"|"$package/scripts"|"$package/dist") ;; *) fail 'offline package contains an unexpected directory' ;; esac
+  done < <(find "$package" -type d -print0)
+}
+
 snapshot_codex_config() {
   config_file="$HOME/.codex/config.toml"
   [[ ! -L "$config_file" ]] || fail 'Codex config must not be a symlink'
@@ -416,13 +474,30 @@ finish_transaction() {
 }
 
 run_key_only_installer() {
-  if ! (cd "$target" && IMAGE2_MCP_REPO="$readonly_repo_slug" ./install.sh --key-only); then
+  local installer_args=(--key-only)
+  if [[ "${1:-0}" -eq 1 ]]; then
+    installer_args+=(--offline)
+  fi
+  if ! (cd "$target" && unset OPENAI_IMAGE_API_KEY GEMINI_IMAGE_API_KEY && IMAGE2_MCP_REPO="$readonly_repo_slug" ./install.sh "${installer_args[@]}"); then
     fail 'key-only installer failed; the previous target will be restored'
   fi
 }
 
 main() {
-  local os arch parent archive extract stage repeat=0
+  local os arch parent archive extract stage repeat=0 offline=0 offline_package=''
+  if [[ $# -gt 0 ]]; then
+    [[ $# -eq 2 && "$1" == --offline-package && -n "${2:-}" ]] ||
+      fail 'usage: bootstrap-agent-install.sh [--offline-package DIRECTORY]'
+    offline_package="$2"
+    while [[ "$offline_package" != / ]]; do
+      case "$offline_package" in
+        */) offline_package="${offline_package%/}" ;;
+        */.) offline_package="${offline_package%/.}" ;;
+        *) break ;;
+      esac
+    done
+    offline=1
+  fi
   [[ -n "${HOME:-}" ]] || fail 'HOME is required'
   os="$(platform_name)" || fail 'unsupported operating system'
   arch="$(arch_name)" || fail 'unsupported architecture'
@@ -437,30 +512,39 @@ main() {
   trap 'terminate_from_signal 130' INT
   trap 'terminate_from_signal 143' TERM
 
-  printf 'Checking public Release...\n'
-  validate_release_gate ||
-    fail 'public v0.3.3 Release gate failed; GitHub API must confirm the published tag and all six required assets'
+  if [[ "$offline" -eq 0 ]]; then
+    printf 'Checking public Release...\n'
+    validate_release_gate ||
+      fail 'public v0.4.0 Release gate failed; GitHub API must confirm the published tag and all six required assets'
+  fi
 
   if [[ -e "$target" || -L "$target" ]]; then
     validate_existing_target
     repeat=1
   fi
 
-  archive="$txn/source.tar.gz"
-  printf 'Downloading source package...\n'
-  download_source "$readonly_source_url" "$archive"
-  validate_archive "$archive"
-  printf 'Preparing installation...\n'
-  extract="$txn/extract"
-  mkdir -p "$extract"
-  tar -xzf "$archive" -C "$extract" || fail 'source archive extraction failed'
-  stage="$extract/$readonly_source_root"
-  validate_staged_source "$stage"
-  printf '%s' "$readonly_repo_slug" >"$stage/.image2-mcp-managed"
-  if [[ "$repeat" -eq 1 && -e "$target/.env.local" ]]; then
-    [[ -f "$target/.env.local" && ! -L "$target/.env.local" ]] || fail 'existing API Key configuration is not a regular file'
-    cp -p "$target/.env.local" "$stage/.env.local"
+  if [[ "$offline" -eq 1 ]]; then
+    validate_offline_package "$offline_package"
+    printf 'Preparing installation...\n'
+    stage="$txn/stage"
+    mkdir -p "$stage"
+    cp -R "$offline_package/." "$stage/"
+    validate_offline_package "$stage"
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/offline-binary.sh"
+    verify_offline_binary "$stage"
+  else
+    archive="$txn/source.tar.gz"
+    printf 'Downloading source package...\n'
+    download_source "$readonly_source_url" "$archive"
+    validate_archive "$archive"
+    printf 'Preparing installation...\n'
+    extract="$txn/extract"
+    mkdir -p "$extract"
+    tar -xzf "$archive" -C "$extract" || fail 'source archive extraction failed'
+    stage="$extract/$readonly_source_root"
+    validate_staged_source "$stage"
   fi
+  printf '%s' "$readonly_repo_slug" >"$stage/.image2-mcp-managed"
   snapshot_codex_config
 
   if [[ "$repeat" -eq 1 ]]; then
@@ -471,7 +555,7 @@ main() {
   new_move_started=1
   mv "$stage" "$target"
   printf 'Installing platform binary...\n'
-  run_key_only_installer
+  run_key_only_installer "$offline"
   printf 'Verifying local installation...\n'
 
   transaction_complete=1

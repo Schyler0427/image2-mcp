@@ -8,6 +8,25 @@ function Assert-Contains([string]$Path, [string]$Expected, [string]$Message) {
   Assert-True ([IO.File]::ReadAllText($Path).Contains($Expected)) $Message
 }
 
+function New-TestOfflineBinary([string]$Path, [string]$Version = "0.4.2") {
+  $NativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+  $Arch = switch ($NativeArchitecture.ToUpperInvariant()) { "ARM64" { "arm64" }; "AMD64" { "amd64" }; "X86" { "386" }; default { throw "unsupported fixture architecture" } }
+  $TypeName = "OfflineBinaryFixture" + [Guid]::NewGuid().ToString("N")
+  $Source = @"
+using System;
+public static class $TypeName {
+  public static int Main(string[] args) {
+    if (args.Length != 1 || args[0] != "--version") return 64;
+    if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable("OPENAI_IMAGE_API_KEY")) ||
+        !String.IsNullOrEmpty(Environment.GetEnvironmentVariable("GEMINI_IMAGE_API_KEY"))) return 93;
+    Console.WriteLine("image2-mcp $Version offline-v1 windows $Arch");
+    return 0;
+  }
+}
+"@
+  Add-Type -TypeDefinition $Source -Language CSharp -OutputAssembly $Path -OutputType ConsoleApplication
+}
+
 function Assert-ZipContains([string]$ArchivePath, [string]$EntryName, [string]$Message) {
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $Stream = [IO.File]::OpenRead($ArchivePath)
@@ -46,7 +65,7 @@ foreach ($Name in @(
 
 function New-SourceZip([string]$Name, [string]$Version, [string]$Mode = "ok") {
   $SourceParent = Join-Path $TempRoot ("source-" + $Name)
-  $Tree = Join-Path $SourceParent "image2-mcp-0.3.3"
+  $Tree = Join-Path $SourceParent "image2-mcp-0.4.0"
   $Archive = Join-Path $TempRoot ($Name + ".zip")
   New-Item -ItemType Directory -Force -Path (Join-Path $Tree "scripts") | Out-Null
   [IO.File]::WriteAllText((Join-Path $Tree "go.mod"), "module fixture`n", (New-Object Text.UTF8Encoding($false)))
@@ -54,17 +73,22 @@ function New-SourceZip([string]$Name, [string]$Version, [string]$Mode = "ok") {
   [IO.File]::WriteAllText((Join-Path $Tree "install.sh"), "placeholder`n", (New-Object Text.UTF8Encoding($false)))
   [IO.File]::WriteAllText((Join-Path $Tree "scripts\run-image2-mcp.ps1"), "placeholder`n", (New-Object Text.UTF8Encoding($false)))
   [IO.File]::WriteAllText((Join-Path $Tree "install.ps1"), @'
-param([switch]$KeyOnly)
+param([switch]$KeyOnly, [switch]$Offline)
 $ErrorActionPreference = "Stop"
 if (-not $KeyOnly) { exit 64 }
 if ($env:IMAGE2_MCP_REPO -cne "Schyler0427/image2-mcp") { exit 66 }
+if ($Offline) {
+  if (-not (Test-Path (Join-Path $PSScriptRoot "dist\image2-mcp.exe") -PathType Leaf)) { exit 67 }
+} else {
+  New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot "dist") | Out-Null
+  [IO.File]::WriteAllText((Join-Path $PSScriptRoot "dist\image2-mcp.exe"), "fixture binary`n", (New-Object Text.UTF8Encoding($false)))
+}
 Write-Host -NoNewline "OPENAI_IMAGE_API_KEY: "
 $FixtureKey = [Console]::In.ReadLine()
 Write-Host ""
 if ([string]::IsNullOrWhiteSpace($FixtureKey)) { exit 65 }
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot ".env.local"), "OPENAI_IMAGE_BASE_URL=https://api.schyler.top`nOPENAI_IMAGE_API_KEY=stored`n", (New-Object Text.UTF8Encoding($false)))
-New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot "dist"), (Join-Path $HOME ".codex") | Out-Null
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot "dist\image2-mcp.exe"), "fixture binary`n", (New-Object Text.UTF8Encoding($false)))
+New-Item -ItemType Directory -Force -Path (Join-Path $HOME ".codex") | Out-Null
 [IO.File]::WriteAllText((Join-Path $HOME ".codex\config.toml"), "[mcp_servers.image2]`ncommand = `"fixture`"`n", (New-Object Text.UTF8Encoding($false)))
 if (Test-Path (Join-Path $PSScriptRoot ".fixture-config-path-fail")) {
   $FixtureConfig = Join-Path $HOME ".codex\config.toml"
@@ -112,12 +136,12 @@ function New-UnsafeCaseZip {
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   try {
     foreach ($Name in @(
-      "image2-mcp-0.3.3/install.sh",
-      "image2-mcp-0.3.3/install.ps1",
-      "image2-mcp-0.3.3/go.mod",
-      "image2-mcp-0.3.3/scripts/run-image2-mcp.ps1",
-      "image2-mcp-0.3.3/Case.txt",
-      "image2-mcp-0.3.3/case.txt"
+      "image2-mcp-0.4.0/install.sh",
+      "image2-mcp-0.4.0/install.ps1",
+      "image2-mcp-0.4.0/go.mod",
+      "image2-mcp-0.4.0/scripts/run-image2-mcp.ps1",
+      "image2-mcp-0.4.0/Case.txt",
+      "image2-mcp-0.4.0/case.txt"
     )) {
       Add-TestZipEntry $Zip $Name
     }
@@ -134,15 +158,15 @@ function New-UnsafePrefixZip([string]$Name, [switch]$ChildFirst) {
   $Stream = [IO.File]::Open($Archive, [IO.FileMode]::Create)
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   $Required = @(
-    "image2-mcp-0.3.3/install.sh",
-    "image2-mcp-0.3.3/install.ps1",
-    "image2-mcp-0.3.3/go.mod",
-    "image2-mcp-0.3.3/scripts/run-image2-mcp.ps1"
+    "image2-mcp-0.4.0/install.sh",
+    "image2-mcp-0.4.0/install.ps1",
+    "image2-mcp-0.4.0/go.mod",
+    "image2-mcp-0.4.0/scripts/run-image2-mcp.ps1"
   )
   $Collision = if ($ChildFirst) {
-    @("image2-mcp-0.3.3/prefix/child.txt", "image2-mcp-0.3.3/prefix")
+    @("image2-mcp-0.4.0/prefix/child.txt", "image2-mcp-0.4.0/prefix")
   } else {
-    @("image2-mcp-0.3.3/prefix", "image2-mcp-0.3.3/prefix/child.txt")
+    @("image2-mcp-0.4.0/prefix", "image2-mcp-0.4.0/prefix/child.txt")
   }
   try {
     foreach ($EntryName in @($Required + $Collision)) {
@@ -162,14 +186,14 @@ function New-UnsafeAttributeZip([string]$Name, [int]$ExternalAttributes) {
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   try {
     foreach ($EntryName in @(
-      "image2-mcp-0.3.3/install.sh",
-      "image2-mcp-0.3.3/install.ps1",
-      "image2-mcp-0.3.3/go.mod",
-      "image2-mcp-0.3.3/scripts/run-image2-mcp.ps1"
+      "image2-mcp-0.4.0/install.sh",
+      "image2-mcp-0.4.0/install.ps1",
+      "image2-mcp-0.4.0/go.mod",
+      "image2-mcp-0.4.0/scripts/run-image2-mcp.ps1"
     )) {
       Add-TestZipEntry $Zip $EntryName
     }
-    Add-TestZipEntry $Zip "image2-mcp-0.3.3/unsafe-link" $ExternalAttributes
+    Add-TestZipEntry $Zip "image2-mcp-0.4.0/unsafe-link" $ExternalAttributes
   } finally {
     $Zip.Dispose()
     $Stream.Dispose()
@@ -194,7 +218,8 @@ function Invoke-TestBootstrap(
   [string]$SourceDownloadMarker,
   [string]$ReleaseApiStatus = "200",
   [string]$ReleaseJsonPath = $ReleaseJson,
-  [string]$NetworkLog
+  [string]$NetworkLog,
+  [string]$OfflinePackage
 ) {
   Set-TestHome $HomePath
   if ($WithoutHomeEnvironment) {
@@ -228,6 +253,9 @@ function Invoke-TestBootstrap(
     $Info = New-Object Diagnostics.ProcessStartInfo
     $Info.FileName = $env:ComSpec
     $Info.Arguments = '/d /s /c ""' + $PowerShell + '" -NoProfile -ExecutionPolicy Bypass -File "' + $Harness + '" < "' + $InputFile + '""'
+    if ($OfflinePackage) {
+      $Info.Arguments = '/d /s /c ""' + $PowerShell + '" -NoProfile -ExecutionPolicy Bypass -File "' + $Harness + '" -TestOfflinePackage "' + $OfflinePackage + '" < "' + $InputFile + '""'
+    }
     $Info.UseShellExecute = $false
     $Info.RedirectStandardOutput = $true
     $Info.RedirectStandardError = $true
@@ -288,7 +316,7 @@ try {
   New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
   [IO.File]::WriteAllText($ReleaseJson, @'
 {
-  "tag_name": "v0.3.3",
+  "tag_name": "v0.4.0",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -302,6 +330,7 @@ try {
 }
 '@, (New-Object Text.UTF8Encoding($false)))
   [IO.File]::WriteAllText($Harness, @'
+param([string]$TestOfflinePackage)
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls
 function Invoke-WebRequest {
@@ -319,7 +348,7 @@ function Invoke-WebRequest {
   if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
     throw "fixture source download did not preserve TLS"
   }
-  if ($Uri -ne "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.zip") {
+  if ($Uri -ne "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.zip") {
     throw "unexpected fixture URL: $Uri"
   }
   if (-not [string]::IsNullOrEmpty($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER)) {
@@ -343,7 +372,7 @@ function Remove-Item {
 . $env:BOOTSTRAP_FIXTURE_HELPER
 # Mock only request creation; exercise the real metadata timeout/error handling.
 function New-AgentBootstrapMetadataRequest([string]$Uri) {
-  if ($Uri -cne "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3") {
+  if ($Uri -cne "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0") {
     throw "unexpected fixture URL: $Uri"
   }
   $Request = [PSCustomObject]@{
@@ -394,7 +423,21 @@ function New-AgentBootstrapMetadataRequest([string]$Uri) {
 }
 $OriginalRepository = [Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process")
 try {
-  Invoke-AgentBootstrap
+  if ($TestOfflinePackage) {
+    # PowerShell's current location can differ from the process working directory.
+    # Exercise relative payload resolution after Set-Location, including spaces.
+    Push-Location (Split-Path -Parent $TestOfflinePackage)
+    try {
+      Invoke-AgentBootstrap -OfflinePackage (".\" + (Split-Path -Leaf $TestOfflinePackage))
+    } finally {
+      Pop-Location
+    }
+    if ([Net.ServicePointManager]::SecurityProtocol -ne [Net.SecurityProtocolType]::Tls) {
+      throw "offline bootstrap changed TLS settings"
+    }
+  } else {
+    Invoke-AgentBootstrap
+  }
 } finally {
   if ([Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process") -cne $OriginalRepository) {
     throw "IMAGE2_MCP_REPO was not restored after installer invocation"
@@ -431,8 +474,130 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   $UnsafePrefixLast = New-UnsafePrefixZip "unsafe-prefix-last" -ChildFirst
   $UnsafeSymlink = New-UnsafeAttributeZip "unsafe-symlink" -1577123840
   $UnsafeReparse = New-UnsafeAttributeZip "unsafe-reparse" ([int][IO.FileAttributes]::ReparsePoint)
-  Assert-ZipContains $Fail "image2-mcp-0.3.3/.fixture-install-fail" "failure fixture marker was omitted from ZIP"
-  Assert-ZipContains $ConfigPathFail "image2-mcp-0.3.3/.fixture-config-path-fail" "config failure fixture marker was omitted from ZIP"
+  Assert-ZipContains $Fail "image2-mcp-0.4.0/.fixture-install-fail" "failure fixture marker was omitted from ZIP"
+  Assert-ZipContains $ConfigPathFail "image2-mcp-0.4.0/.fixture-config-path-fail" "config failure fixture marker was omitted from ZIP"
+
+  # Local payloads keep the bundled binary and bypass all network/TLS setup.
+  $OfflinePayload = Join-Path $TempRoot "offline payload"
+  Copy-Item -LiteralPath (Join-Path $TempRoot "source-v1\image2-mcp-0.4.0") -Destination $OfflinePayload -Recurse
+  New-Item -ItemType Directory -Path (Join-Path $OfflinePayload "dist") | Out-Null
+  New-TestOfflineBinary (Join-Path $OfflinePayload "dist\image2-mcp.exe")
+  $OfflineBinaryHash = (Get-FileHash -LiteralPath (Join-Path $OfflinePayload "dist\image2-mcp.exe") -Algorithm SHA256).Hash
+  Remove-Item -LiteralPath (Join-Path $OfflinePayload "version.txt")
+  $OfflinePaths = @("install.sh", "install.ps1", "go.mod", "LICENSE", "scripts/setup.sh", "scripts/offline-binary.sh", "scripts/offline-binary.ps1",
+    "scripts/run-image2-mcp.sh", "scripts/run-image2-mcp.ps1", "scripts/bootstrap-agent-install.sh",
+    "scripts/bootstrap-agent-install.ps1", "dist/image2-mcp.exe")
+  foreach ($Relative in $OfflinePaths) {
+    $File = Join-Path $OfflinePayload $Relative
+    if (-not (Test-Path -LiteralPath $File)) { Copy-Item -LiteralPath (Join-Path $Root $Relative) -Destination $File }
+  }
+  function Write-TestOfflineManifest([string]$Package) {
+    $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+    $Lines = @("IMAGE2_MCP_OFFLINE 1", "version 0.4.2", "platform windows $Arch")
+    foreach ($Relative in $OfflinePaths) {
+      $File = Get-Item -LiteralPath (Join-Path $Package $Relative)
+      $Hash = (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      $Lines += "file $Hash $($File.Length) $Relative"
+    }
+    [IO.File]::WriteAllText((Join-Path $Package "OFFLINE_PACKAGE_MANIFEST"), (($Lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding($false)))
+  }
+  Write-TestOfflineManifest $OfflinePayload
+  $OfflineHome = Join-Path $TempRoot "offline-home"
+  $OfflineNetwork = Join-Path $TempRoot "offline-network.log"
+  $OfflineResult = Invoke-TestBootstrap $OfflineHome $null -OfflinePackage $OfflinePayload -NetworkLog $OfflineNetwork
+  Assert-True ($OfflineResult.ExitCode -eq 0) "offline bootstrap failed: $($OfflineResult.Output)"
+  $OfflineTarget = Join-Path $OfflineHome "AppData\Local\image2-mcp"
+  Assert-True ($OfflineResult.Output.Contains("Verification: OK")) "offline verification missing"
+  Assert-True ($OfflineResult.Output.Contains("Install directory: $OfflineTarget")) "offline target is not fixed"
+  Assert-True ((Get-FileHash -LiteralPath (Join-Path $OfflineTarget "dist\image2-mcp.exe") -Algorithm SHA256).Hash -ceq $OfflineBinaryHash) "offline bootstrap replaced bundled binary"
+  Assert-True (-not (Test-Path $OfflineNetwork)) "offline bootstrap made fake network calls"
+  Assert-True (-not $OfflineResult.Output.Contains("Checking public Release...")) "offline bootstrap checked Release"
+
+  function Get-TestTreeFingerprint([string]$Path) {
+    return ((Get-ChildItem -LiteralPath $Path -Recurse -Force -File | Sort-Object FullName | ForEach-Object {
+      $_.FullName + "|" + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    }) -join "`n")
+  }
+
+  # Missing bundled binaries fail before the key prompt or target/config mutation.
+  [IO.File]::WriteAllText((Join-Path $OfflineTarget "customer.txt"), "customer sentinel`n", (New-Object Text.UTF8Encoding($false)))
+  $OfflineConfig = Join-Path $OfflineHome ".codex\config.toml"
+  [IO.File]::WriteAllText($OfflineConfig, "offline prior config`n", (New-Object Text.UTF8Encoding($false)))
+  $OfflineTargetBefore = Get-TestTreeFingerprint $OfflineTarget
+  $OfflineConfigBefore = (Get-FileHash $OfflineConfig -Algorithm SHA256).Hash
+  foreach ($InvalidManifest in @("changed-file", "wrong-platform", "wrong-version", "duplicate-record", "missing-manifest", "extra-file")) {
+    $BadPayload = Join-Path $TempRoot ("manifest-" + $InvalidManifest)
+    Copy-Item -LiteralPath $OfflinePayload -Destination $BadPayload -Recurse
+    $Manifest = Join-Path $BadPayload "OFFLINE_PACKAGE_MANIFEST"
+    switch ($InvalidManifest) {
+      "changed-file" { [IO.File]::AppendAllText((Join-Path $BadPayload "scripts\run-image2-mcp.ps1"), "corrupt") }
+      "wrong-platform" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("platform windows", "platform linux"))) }
+      "wrong-version" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("version 0.4.2", "version 999.0.0"))) }
+      "duplicate-record" { [IO.File]::AppendAllText($Manifest, "file duplicate`n") }
+      "missing-manifest" { Remove-Item -LiteralPath $Manifest }
+      "extra-file" { [IO.File]::WriteAllText((Join-Path $BadPayload ".env"), "unexpected") }
+    }
+    $BadResult = Invoke-TestBootstrap $OfflineHome $null -OfflinePackage $BadPayload -NetworkLog $OfflineNetwork
+    Assert-True ($BadResult.ExitCode -ne 0) "offline payload accepted $InvalidManifest"
+    Assert-True (-not $BadResult.Output.Contains("OPENAI_IMAGE_API_KEY:")) "invalid manifest prompted for Key"
+    Assert-True ((Get-TestTreeFingerprint $OfflineTarget) -ceq $OfflineTargetBefore) "invalid manifest changed target"
+    Assert-True (((Get-FileHash $OfflineConfig -Algorithm SHA256).Hash) -ceq $OfflineConfigBefore) "invalid manifest changed config"
+  }
+  $MissingBinaryPayload = Join-Path $TempRoot "offline-missing-binary"
+  Copy-Item -LiteralPath $OfflinePayload -Destination $MissingBinaryPayload -Recurse
+  Remove-Item -LiteralPath (Join-Path $MissingBinaryPayload "dist\image2-mcp.exe")
+  $MissingBinaryNetwork = Join-Path $TempRoot "offline-missing-network.log"
+  $MissingBinary = Invoke-TestBootstrap $OfflineHome $null -OfflinePackage $MissingBinaryPayload -NetworkLog $MissingBinaryNetwork
+  Assert-True ($MissingBinary.ExitCode -ne 0) "missing bundled binary unexpectedly succeeded"
+  Assert-True ($MissingBinary.Output.Contains("image2-mcp.exe")) "missing binary failed for the wrong reason"
+  Assert-True (-not $MissingBinary.Output.Contains("OPENAI_IMAGE_API_KEY:")) "missing binary reached key input"
+  Assert-True ((Get-TestTreeFingerprint $OfflineTarget) -ceq $OfflineTargetBefore) "missing binary changed target fingerprint"
+  Assert-True (((Get-FileHash $OfflineConfig -Algorithm SHA256).Hash) -ceq $OfflineConfigBefore) "missing binary changed config fingerprint"
+  Assert-True (-not (Test-Path $MissingBinaryNetwork)) "missing-binary validation made fake network calls"
+
+  # Reparse points and missing source files are rejected before target mutation.
+  foreach ($InvalidKind in @("root-link", "nested-link", "missing-source")) {
+    $InvalidPayload = Join-Path $TempRoot ("offline-" + $InvalidKind)
+    if ($InvalidKind -eq "root-link") {
+      New-Item -ItemType Junction -Path $InvalidPayload -Target $OfflinePayload | Out-Null
+    } else {
+      Copy-Item -LiteralPath $OfflinePayload -Destination $InvalidPayload -Recurse
+      if ($InvalidKind -eq "nested-link") {
+        New-Item -ItemType Junction -Path (Join-Path $InvalidPayload "linked-directory") -Target (Join-Path $OfflinePayload "scripts") | Out-Null
+      } else {
+        Remove-Item -LiteralPath (Join-Path $InvalidPayload "go.mod")
+      }
+    }
+    $InvalidResult = Invoke-TestBootstrap $OfflineHome $null -OfflinePackage $InvalidPayload -NetworkLog $OfflineNetwork
+    Assert-True ($InvalidResult.ExitCode -ne 0) "offline $InvalidKind unexpectedly succeeded"
+    Assert-True (-not $InvalidResult.Output.Contains("OPENAI_IMAGE_API_KEY:")) "offline $InvalidKind reached key input"
+    Assert-True ((Get-TestTreeFingerprint $OfflineTarget) -ceq $OfflineTargetBefore) "offline $InvalidKind changed target"
+    Assert-True (((Get-FileHash $OfflineConfig -Algorithm SHA256).Hash) -ceq $OfflineConfigBefore) "offline $InvalidKind changed config"
+    Assert-True (-not (Test-Path $OfflineNetwork)) "offline $InvalidKind made fake network calls"
+    if ($InvalidKind -eq "root-link") {
+      [IO.Directory]::Delete($InvalidPayload)
+    } elseif ($InvalidKind -eq "nested-link") {
+      [IO.Directory]::Delete((Join-Path $InvalidPayload "linked-directory"))
+    }
+  }
+
+  # The customer wrapper locates siblings from another working directory.
+  $WrapperRoot = Join-Path $TempRoot "offline package"
+  New-Item -ItemType Directory -Force -Path (Join-Path $WrapperRoot "scripts"), (Join-Path $WrapperRoot "payload") | Out-Null
+  Copy-Item -LiteralPath (Join-Path $Root "install-offline.ps1") -Destination (Join-Path $WrapperRoot "install-offline.ps1")
+  [IO.File]::WriteAllText((Join-Path $WrapperRoot "scripts\bootstrap-agent-install.ps1"), @'
+param([string]$OfflinePackage)
+$Expected = Join-Path (Split-Path -Parent $PSScriptRoot) 'payload'
+if ($OfflinePackage -cne $Expected) { throw "wrapper passed the wrong payload: $OfflinePackage" }
+Write-Output 'offline wrapper arguments OK'
+'@, (New-Object Text.UTF8Encoding($false)))
+  Push-Location $TempRoot
+  try {
+    $WrapperOutput = & (Join-Path $WrapperRoot "install-offline.ps1")
+    Assert-True ($WrapperOutput -contains 'offline wrapper arguments OK') "offline wrapper did not invoke its sibling helper"
+  } finally {
+    Pop-Location
+  }
 
   # First install and clean repeat.
   $CleanHome = Join-Path $TempRoot "clean-home"
@@ -448,8 +613,8 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   Assert-True ($First.Output.Contains("Verifying local installation...")) "verification progress marker missing"
   $ApiCalls = @([IO.File]::ReadAllLines($ApiOnlyNetwork))
   Assert-True ($ApiCalls.Count -eq 2) "expected one metadata request and one source download"
-  Assert-True ($ApiCalls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3") "Release API request was not single, bounded, and without redirects"
-  Assert-True ($ApiCalls[1] -ceq "WEB|60|https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.zip") "source timeout is not bounded"
+  Assert-True ($ApiCalls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0") "Release API request was not single, bounded, and without redirects"
+  Assert-True ($ApiCalls[1] -ceq "WEB|60|https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.zip") "source timeout is not bounded"
   Assert-True ($First.Output.Contains("OPENAI_IMAGE_API_KEY:")) "bootstrap did not expose the key prompt"
   Assert-True (-not $First.Output.Contains($SecretText)) "first install leaked key"
   $CleanTarget = Join-Path $CleanHome "AppData\Local\image2-mcp"
@@ -475,7 +640,7 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
       Assert-True ($DiagnosticOutput.Contains($Diagnostic)) "$Name failed for the wrong reason: $($Result.Output)"
       $Calls = @([IO.File]::ReadAllLines($Log))
       Assert-True ($Calls.Count -eq 1) "$Name retried, fell back, or downloaded source"
-      Assert-True ($Calls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3") "$Name did not use the bounded Release API"
+      Assert-True ($Calls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0") "$Name did not use the bounded Release API"
       Assert-True (-not $Result.Output.Contains("OPENAI_IMAGE_API_KEY:")) "$Name reached key input"
       Assert-True (-not $Result.Output.Contains($SecretText)) "$Name leaked key"
       Assert-True (@(Get-PreviousBackups (Split-Path -Parent $Target)).Count -eq 0) "$Name moved existing target"
@@ -503,7 +668,7 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
     Assert-ReleaseRefusal $Field $InvalidRelease "200" ("must not be a " + $Field)
   }
   $InvalidRelease = Join-Path $TempRoot "release-invalid.json"
-  [IO.File]::WriteAllText($InvalidRelease, $ValidRelease.Replace('"tag_name": "v0.3.3"', '"tag_name": "wrong-tag"'))
+  [IO.File]::WriteAllText($InvalidRelease, $ValidRelease.Replace('"tag_name": "v0.4.0"', '"tag_name": "wrong-tag"'))
   Assert-ReleaseRefusal "wrong-tag" $InvalidRelease "200" "wrong tag"
   [IO.File]::WriteAllText($InvalidRelease, "{invalid JSON")
   Assert-ReleaseRefusal "malformed" $InvalidRelease "200" "Release gate failed"

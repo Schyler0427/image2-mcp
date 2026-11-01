@@ -18,7 +18,7 @@ mkdir -p "$fakebin" "$tmp/sources"
 release_json="$tmp/release.json"
 cat >"$release_json" <<'JSON'
 {
-  "tag_name": "v0.3.3",
+  "tag_name": "v0.4.0",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 case "$url" in
-  https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3)
+  https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0)
     status="${BOOTSTRAP_FIXTURE_RELEASE_API_STATUS:-200}"
     case "$status" in
       network|timeout)
@@ -67,7 +67,7 @@ case "$url" in
     esac
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.tar.gz)
+  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.tar.gz)
     if [[ -n "${BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER:-}" ]]; then
       : >"$BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER"
     fi
@@ -166,7 +166,7 @@ chmod +x "$fakebin/rm"
 
 make_source_archive() {
   local name="$1" version="$2" mode="${3:-ok}" tree archive
-  tree="$tmp/sources/$name/image2-mcp-0.3.3"
+  tree="$tmp/sources/$name/image2-mcp-0.4.0"
   archive="$tmp/sources/$name.tar.gz"
   mkdir -p "$tree/scripts"
   printf 'module fixture\n' >"$tree/go.mod"
@@ -177,18 +177,27 @@ make_source_archive() {
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "${1:-}" == '--key-only' ]] || exit 64
-if [[ ! -f .env.local ]]; then
-  printf 'OPENAI_IMAGE_API_KEY: ' >&2
-  IFS= read -r fixture_key || exit 65
-  printf '\n' >&2
-  [[ "$fixture_key" =~ [^[:space:]] ]] || exit 66
-  printf 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top\nOPENAI_IMAGE_API_KEY=stored\n' >.env.local
-else
-  printf '==> Existing API Key configuration found; reusing it.\n'
+[[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" ]] || exit 63
+offline=0
+if [[ "${2:-}" == '--offline' && $# -eq 2 ]]; then
+  offline=1
+elif [[ $# -ne 1 ]]; then
+  exit 64
 fi
+if [[ "$offline" -eq 1 ]]; then
+  [[ -f dist/image2-mcp ]] || exit 67
+else
+  mkdir -p dist
+  printf 'fixture binary\n' >dist/image2-mcp
+fi
+printf 'OPENAI_IMAGE_API_KEY: ' >&2
+IFS= read -r fixture_key || exit 65
+IFS= read -r fixture_gemini_key || exit 65
+printf '\n' >&2
+[[ "$fixture_key" =~ [^[:space:]] && "$fixture_gemini_key" =~ [^[:space:]] ]] || exit 66
+printf 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top\nOPENAI_IMAGE_API_KEY=stored\nGEMINI_IMAGE_API_KEY=gemini-stored\n' >.env.local
 chmod 600 .env.local
-mkdir -p dist "$HOME/.codex"
-printf 'fixture binary\n' >dist/image2-mcp
+mkdir -p "$HOME/.codex"
 printf '[mcp_servers.image2]\ncommand = "fixture"\n' >"$HOME/.codex/config.toml"
 if [[ -f .fixture-install-fail ]]; then
   exit 41
@@ -215,7 +224,7 @@ INSTALL
       rm -f "$tree/scripts/run-image2-mcp.sh"
       ;;
   esac
-  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.3.3
+  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.4.0
   printf '%s\n' "$archive"
 }
 
@@ -224,10 +233,10 @@ make_canonical_duplicate_archive() {
   local archive="$tmp/sources/canonical-duplicate.tar.gz"
   local file_tree="$tmp/sources/canonical-file" directory_tree="$tmp/sources/canonical-directory"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$file_tree/image2-mcp-0.3.3" "$directory_tree/image2-mcp-0.3.3/canonical-path"
-  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.3.3/canonical-path"
-  tar -rf "$plain" -C "$file_tree" image2-mcp-0.3.3/canonical-path
-  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.3.3/canonical-path
+  mkdir -p "$file_tree/image2-mcp-0.4.0" "$directory_tree/image2-mcp-0.4.0/canonical-path"
+  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.4.0/canonical-path"
+  tar -rf "$plain" -C "$file_tree" image2-mcp-0.4.0/canonical-path
+  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.4.0/canonical-path
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -236,9 +245,9 @@ make_repeated_slash_archive() {
   local base_archive="$1" plain="$tmp/sources/repeated-slash.tar"
   local archive="$tmp/sources/repeated-slash.tar.gz" tree="$tmp/sources/repeated-slash"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$tree/image2-mcp-0.3.3/repeated"
-  printf 'repeated slash path\n' >"$tree/image2-mcp-0.3.3/repeated/path.txt"
-  tar -rf "$plain" -C "$tree" image2-mcp-0.3.3//repeated/path.txt
+  mkdir -p "$tree/image2-mcp-0.4.0/repeated"
+  printf 'repeated slash path\n' >"$tree/image2-mcp-0.4.0/repeated/path.txt"
+  tar -rf "$plain" -C "$tree" image2-mcp-0.4.0//repeated/path.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -248,27 +257,41 @@ make_case_ambiguous_archive() {
   local archive="$tmp/sources/case-ambiguous.tar.gz"
   local upper_tree="$tmp/sources/case-upper" lower_tree="$tmp/sources/case-lower"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$upper_tree/image2-mcp-0.3.3" "$lower_tree/image2-mcp-0.3.3"
-  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.3.3/CasePath.txt"
-  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.3.3/casepath.txt"
-  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.3.3/CasePath.txt
-  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.3.3/casepath.txt
+  mkdir -p "$upper_tree/image2-mcp-0.4.0" "$lower_tree/image2-mcp-0.4.0"
+  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.4.0/CasePath.txt"
+  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.4.0/casepath.txt"
+  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.4.0/CasePath.txt
+  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.4.0/casepath.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
 
 run_bootstrap() {
   local home="$1" archive="$2" output="$3"
-  printf '%s\n' 'fixture-key-redacted' |
+  printf '%s\n%s\n' 'fixture-key-redacted' 'fixture-gemini-redacted' |
     HOME="$home" PATH="$fakebin:$PATH" \
     BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
     BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$archive" \
     "$helper" >"$output" 2>&1
 }
 
+run_offline_bootstrap() {
+  local test_home="$1" payload="$2" output="$3" network_log="$4"
+  printf '%s\n%s\n' 'fixture-key-redacted' 'fixture-gemini-redacted' |
+    HOME="$test_home" PATH="$fakebin:$PATH" \
+    BOOTSTRAP_FIXTURE_NETWORK_LOG="$network_log" \
+    BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
+    BOOTSTRAP_FIXTURE_SOURCE_ARCHIVE="$v1_archive" \
+    "$helper" --offline-package "$payload" >"$output" 2>&1
+}
+
+tree_fingerprint() {
+  find "$1" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}'
+}
+
 run_bootstrap_without_git() {
   local home="$1" archive="$2" output="$3" source_marker="${4:-}"
-  printf '%s\n' 'fixture-key-redacted' |
+  printf '%s\n%s\n' 'fixture-key-redacted' 'fixture-gemini-redacted' |
     HOME="$home" PATH="$fakebin:$PATH" \
     BOOTSTRAP_FIXTURE_BLOCK_GIT=1 \
     BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER="$source_marker" \
@@ -279,7 +302,7 @@ run_bootstrap_without_git() {
 
 run_bootstrap_with_git_toplevel() {
   local home="$1" archive="$2" output="$3" git_toplevel="$4" source_marker="$5"
-  printf '%s\n' 'fixture-key-redacted' |
+  printf '%s\n%s\n' 'fixture-key-redacted' 'fixture-gemini-redacted' |
     HOME="$home" PATH="$fakebin:$PATH" \
     BOOTSTRAP_FIXTURE_GIT_TOPLEVEL="$git_toplevel" \
     BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER="$source_marker" \
@@ -290,7 +313,7 @@ run_bootstrap_with_git_toplevel() {
 
 run_bootstrap_with_cleanup_failure() {
   local home="$1" archive="$2" output="$3"
-  printf '%s\n' 'fixture-key-redacted' |
+  printf '%s\n%s\n' 'fixture-key-redacted' 'fixture-gemini-redacted' |
     HOME="$home" PATH="$fakebin:$PATH" \
     BOOTSTRAP_FIXTURE_FAIL_TXN_CLEANUP=1 \
     BOOTSTRAP_FIXTURE_RELEASE_JSON="$release_json" \
@@ -351,6 +374,154 @@ canonical_duplicate_archive="$(make_canonical_duplicate_archive "$v1_archive")"
 repeated_slash_archive="$(make_repeated_slash_archive "$v1_archive")"
 case_ambiguous_archive="$(make_case_ambiguous_archive "$v1_archive")"
 
+# A local payload uses its bundled binary without network calls.
+offline_payload="$tmp/offline-payload"
+cp -R "$tmp/sources/v1/image2-mcp-0.4.0" "$offline_payload"
+mkdir -p "$offline_payload/dist"
+cat >"$offline_payload/dist/image2-mcp" <<'BIN'
+#!/usr/bin/env bash
+# bundled binary marker
+[[ "${1:-}" == --version ]] || exit 64
+[[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" ]] || exit 93
+case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
+case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
+printf 'image2-mcp 0.4.2 offline-v1 %s %s\n' "$os" "$arch"
+BIN
+chmod +x "$offline_payload/dist/image2-mcp"
+rm "$offline_payload/version.txt"
+offline_paths=(install.sh install.ps1 go.mod LICENSE scripts/setup.sh scripts/offline-binary.sh scripts/offline-binary.ps1 scripts/run-image2-mcp.sh scripts/run-image2-mcp.ps1 scripts/bootstrap-agent-install.sh scripts/bootstrap-agent-install.ps1 dist/image2-mcp)
+for path in "${offline_paths[@]}"; do
+  [[ -f "$offline_payload/$path" ]] || cp "$root/$path" "$offline_payload/$path"
+done
+write_offline_manifest() {
+  local package="$1" path hash bytes manifest_os manifest_arch
+  manifest_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$(uname -m)" in
+    arm64|aarch64) manifest_arch=arm64 ;;
+    *) manifest_arch=amd64 ;;
+  esac
+  {
+    printf 'IMAGE2_MCP_OFFLINE 1\nversion 0.4.2\nplatform %s %s\n' "$manifest_os" "$manifest_arch"
+    for path in "${offline_paths[@]}"; do
+      hash="$(shasum -a 256 "$package/$path" | awk '{print $1}')"
+      bytes="$(wc -c < "$package/$path" | tr -d '[:space:]')"
+      printf 'file %s %s %s\n' "$hash" "$bytes" "$path"
+    done
+  } >"$package/OFFLINE_PACKAGE_MANIFEST"
+}
+write_offline_manifest "$offline_payload"
+offline_home="$tmp/offline-home"
+offline_network="$tmp/offline-network.log"
+offline_output="$tmp/offline-install.log"
+run_offline_bootstrap "$offline_home" "$offline_payload" "$offline_output" "$offline_network" ||
+  { cat "$offline_output" >&2; fail 'offline package bootstrap failed'; }
+assert_contains "$offline_output" 'Verification: OK'
+assert_contains "$offline_output" "Install directory: $offline_home/.local/share/image2-mcp"
+[[ ! -s "$offline_network" ]] || fail 'offline bootstrap made fake network calls'
+assert_contains "$offline_home/.local/share/image2-mcp/dist/image2-mcp" 'bundled binary marker'
+assert_not_contains "$offline_output" 'Checking public Release...'
+assert_not_contains "$offline_output" 'Downloading source package...'
+
+# Missing bundled binaries fail before prompting or changing target/config.
+offline_target="$offline_home/.local/share/image2-mcp"
+printf 'offline customer sentinel\n' >"$offline_target/customer.txt"
+printf 'offline prior config\n' >"$offline_home/.codex/config.toml"
+offline_target_before="$(tree_fingerprint "$offline_target")"
+offline_config_before="$(shasum -a 256 "$offline_home/.codex/config.toml" | awk '{print $1}')"
+for bad_manifest in changed-file wrong-platform wrong-version duplicate-record missing-manifest extra-file; do
+  bad_payload="$tmp/offline-$bad_manifest"
+  cp -R "$offline_payload" "$bad_payload"
+  case "$bad_manifest" in
+    changed-file) printf 'corrupt\n' >>"$bad_payload/scripts/run-image2-mcp.sh" ;;
+    wrong-platform) sed '3s/.*/platform windows arm64/' "$bad_payload/OFFLINE_PACKAGE_MANIFEST" >"$tmp/bad-manifest"; cp "$tmp/bad-manifest" "$bad_payload/OFFLINE_PACKAGE_MANIFEST" ;;
+    wrong-version) sed '2s/.*/version 999.0.0/' "$bad_payload/OFFLINE_PACKAGE_MANIFEST" >"$tmp/bad-manifest"; cp "$tmp/bad-manifest" "$bad_payload/OFFLINE_PACKAGE_MANIFEST" ;;
+    duplicate-record) tail -n 1 "$bad_payload/OFFLINE_PACKAGE_MANIFEST" >>"$bad_payload/OFFLINE_PACKAGE_MANIFEST" ;;
+    missing-manifest) rm "$bad_payload/OFFLINE_PACKAGE_MANIFEST" ;;
+    extra-file) printf 'unmanaged\n' >"$bad_payload/.env" ;;
+  esac
+  if run_offline_bootstrap "$offline_home" "$bad_payload" "$tmp/$bad_manifest.log" "$offline_network"; then
+    fail "offline payload accepted $bad_manifest"
+  fi
+  assert_not_contains "$tmp/$bad_manifest.log" 'OPENAI_IMAGE_API_KEY:'
+  [[ "$(tree_fingerprint "$offline_target")" == "$offline_target_before" ]] || fail "$bad_manifest changed target"
+  [[ "$(shasum -a 256 "$offline_home/.codex/config.toml" | awk '{print $1}')" == "$offline_config_before" ]] || fail "$bad_manifest changed config"
+done
+missing_binary_payload="$tmp/offline-payload-missing-binary"
+cp -R "$offline_payload" "$missing_binary_payload"
+rm "$missing_binary_payload/dist/image2-mcp"
+missing_binary_network="$tmp/offline-missing-network.log"
+if HOME="$offline_home" PATH="$fakebin:$PATH" \
+  BOOTSTRAP_FIXTURE_NETWORK_LOG="$missing_binary_network" \
+  "$helper" --offline-package "$missing_binary_payload" \
+  </dev/null >"$tmp/offline-missing-binary.log" 2>&1; then
+  fail 'offline payload without bundled binary unexpectedly succeeded'
+fi
+assert_contains "$tmp/offline-missing-binary.log" 'dist/image2-mcp'
+assert_not_contains "$tmp/offline-missing-binary.log" 'OPENAI_IMAGE_API_KEY:'
+[[ "$(tree_fingerprint "$offline_target")" == "$offline_target_before" ]] ||
+  fail 'missing bundled binary changed the target fingerprint'
+[[ "$(shasum -a 256 "$offline_home/.codex/config.toml" | awk '{print $1}')" == "$offline_config_before" ]] ||
+  fail 'missing bundled binary changed the config fingerprint'
+[[ ! -s "$missing_binary_network" ]] || fail 'missing-binary validation made fake network calls'
+
+# Local validation rejects links, special files, and missing required source files.
+for invalid_kind in root-link root-link-dot nested-link fifo missing-source; do
+  invalid_payload="$tmp/offline-$invalid_kind"
+  if [[ "$invalid_kind" == root-link || "$invalid_kind" == root-link-dot ]]; then
+    ln -s "$offline_payload" "$invalid_payload"
+    [[ "$invalid_kind" != root-link-dot ]] || invalid_payload="$invalid_payload/./"
+  else
+    cp -R "$offline_payload" "$invalid_payload"
+    case "$invalid_kind" in
+      nested-link) ln -s "$offline_payload/go.mod" "$invalid_payload/linked-file" ;;
+      fifo) mkfifo "$invalid_payload/special-file" ;;
+      missing-source) rm "$invalid_payload/go.mod" ;;
+    esac
+  fi
+  if run_offline_bootstrap "$offline_home" "$invalid_payload" "$tmp/offline-$invalid_kind.log" "$offline_network"; then
+    fail "offline $invalid_kind payload unexpectedly succeeded"
+  fi
+  assert_not_contains "$tmp/offline-$invalid_kind.log" 'OPENAI_IMAGE_API_KEY:'
+  [[ "$(tree_fingerprint "$offline_target")" == "$offline_target_before" ]] || fail "$invalid_kind changed target"
+  [[ "$(shasum -a 256 "$offline_home/.codex/config.toml" | awk '{print $1}')" == "$offline_config_before" ]] || fail "$invalid_kind changed config"
+  [[ ! -s "$offline_network" ]] || fail "$invalid_kind made fake network calls"
+done
+
+# Exactly one offline-package option is accepted; malformed arguments never download.
+for invalid_args in missing-value duplicate unknown extra empty; do
+  case "$invalid_args" in
+    missing-value) args=(--offline-package) ;;
+    duplicate) args=(--offline-package "$offline_payload" --offline-package "$offline_payload") ;;
+    unknown) args=(--unknown) ;;
+    extra) args=(--offline-package "$offline_payload" extra) ;;
+    empty) args=(--offline-package '') ;;
+  esac
+  if HOME="$offline_home" PATH="$fakebin:$PATH" BOOTSTRAP_FIXTURE_NETWORK_LOG="$offline_network" \
+    "$helper" "${args[@]}" </dev/null >"$tmp/offline-args-$invalid_args.log" 2>&1; then
+    fail "invalid $invalid_args arguments unexpectedly succeeded"
+  fi
+  assert_not_contains "$tmp/offline-args-$invalid_args.log" 'OPENAI_IMAGE_API_KEY:'
+  [[ ! -s "$offline_network" ]] || fail 'invalid arguments reached network calls'
+done
+
+# Customer wrapper resolves siblings from its own location, including spaces.
+wrapper_root="$tmp/offline package"
+mkdir -p "$wrapper_root/scripts"
+cp "$root/install-offline.sh" "$wrapper_root/install-offline.sh"
+cp "$helper" "$wrapper_root/scripts/bootstrap-agent-install.sh"
+cp "$root/scripts/offline-binary.sh" "$wrapper_root/scripts/offline-binary.sh"
+cp -R "$offline_payload" "$wrapper_root/payload"
+wrapper_home="$tmp/offline-wrapper-home"
+if ! (cd "$tmp" && printf '%s\n%s\n' 'fixture-key-redacted' 'fixture-gemini-redacted' |
+  HOME="$wrapper_home" PATH="$fakebin:$PATH" BOOTSTRAP_FIXTURE_NETWORK_LOG="$offline_network" \
+  bash "$wrapper_root/install-offline.sh") >"$tmp/offline-wrapper.log" 2>&1; then
+  cat "$tmp/offline-wrapper.log" >&2
+  fail 'offline wrapper failed outside its own directory'
+fi
+assert_contains "$tmp/offline-wrapper.log" 'Verification: OK'
+assert_contains "$wrapper_home/.local/share/image2-mcp/dist/image2-mcp" 'bundled binary marker'
+[[ ! -s "$offline_network" ]] || fail 'offline wrapper made fake network calls'
+
 # One bounded API request is the entire metadata gate; only the source follows it.
 api_only_home="$tmp/api-only-home"
 api_only_log="$tmp/api-only.log"
@@ -365,7 +536,7 @@ assert_api_request() {
   local log="$1" expected_count="$2" first
   [[ "$(wc -l <"$log" | tr -d '[:space:]')" -eq "$expected_count" ]] || fail 'unexpected request count (retry or fallback)'
   first="$(sed -n '1p' "$log")"
-  [[ "$first" == *'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3'* ]] || fail 'first request was not the fixed Release API'
+  [[ "$first" == *'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0'* ]] || fail 'first request was not the fixed Release API'
   [[ "$first" == *'--connect-timeout 5 --max-time 15'* ]] || fail 'metadata timeout is not bounded'
   [[ "$first" == '-q '* && "$first" == *'--retry 0'* ]] || fail 'curl configuration can enable automatic retries'
   [[ "$first" != *'-fL'* && "$first" != *'--location'* ]] || fail 'metadata request can follow redirects'
@@ -376,7 +547,7 @@ assert_api_request "$api_only_network" 2
 source_request="$(sed -n '2p' "$api_only_network")"
 [[ "$source_request" == '-q -fL '* && "$source_request" == *'--retry 0'* ]] ||
   fail 'source download must ignore curlrc retries and preserve GitHub redirects'
-grep -Fq -- '--connect-timeout 10 --max-time 60 --retry 0 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.tar.gz' \
+grep -Fq -- '--connect-timeout 10 --max-time 60 --retry 0 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.tar.gz' \
   "$api_only_network" || fail 'source timeout is not bounded'
 
 # Failures stop before source download, key input, or any existing target/config mutation.
@@ -392,7 +563,7 @@ assert_release_refusal() {
       config_before="$(cksum "$refusal_home/.codex/config.toml")"
       target_before="$(cksum "$refusal_home/.local/share/image2-mcp/version.txt")"
     fi
-    if printf '%s\n' 'fixture-key-redacted' |
+    if printf '%s\n%s\n' 'fixture-key-redacted' 'fixture-gemini-redacted' |
       HOME="$refusal_home" PATH="$fakebin:$PATH" \
       BOOTSTRAP_FIXTURE_NETWORK_LOG="$network" \
       BOOTSTRAP_FIXTURE_RELEASE_API_STATUS="$status" \
@@ -429,7 +600,7 @@ for field in draft prerelease; do
   assert_release_refusal "$field" "$invalid_json" 200 'Release gate failed'
 done
 invalid_json="$tmp/release-wrong-tag.json"
-sed 's/"tag_name": "v0.3.3"/"tag_name": "wrong-tag"/' "$release_json" >"$invalid_json"
+sed 's/"tag_name": "v0.4.0"/"tag_name": "wrong-tag"/' "$release_json" >"$invalid_json"
 assert_release_refusal wrong-tag "$invalid_json" 200 'Release gate failed'
 invalid_json="$tmp/release-malformed.json"
 printf '{invalid JSON\n' >"$invalid_json"
@@ -565,8 +736,8 @@ assert_not_contains "$tmp/first.log" 'fixture-key-redacted'
 
 run_bootstrap "$clean_home" "$v2_archive" "$tmp/clean-repeat.log" || fail 'clean repeat failed'
 [[ "$(cat "$clean_target/version.txt")" == 'version-two' ]] || fail 'clean repeat did not activate new source'
-assert_not_contains "$tmp/clean-repeat.log" 'OPENAI_IMAGE_API_KEY:'
-assert_contains "$tmp/clean-repeat.log" 'Existing API Key configuration found; reusing it.'
+assert_contains "$tmp/clean-repeat.log" 'OPENAI_IMAGE_API_KEY:'
+assert_not_contains "$tmp/clean-repeat.log" 'Existing API Key configuration found; reusing it.'
 assert_contains "$clean_target/.env.local" 'OPENAI_IMAGE_API_KEY=stored'
 clean_backup="$(find_previous_backup "$clean_home/.local/share" | sed -n '1p')"
 [[ -n "$clean_backup" && -d "$clean_backup" ]] || fail 'clean repeat did not retain complete backup'

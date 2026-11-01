@@ -1,3 +1,9 @@
+[CmdletBinding()]
+param(
+  [ValidateNotNullOrEmpty()]
+  [string]$OfflinePackage
+)
+
 function Test-AgentBootstrapReparsePoint([IO.FileSystemInfo]$Item) {
   return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
 }
@@ -42,14 +48,14 @@ function Assert-AgentBootstrapPlainDirectory([string]$Path, [string]$Description
 }
 
 function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
-  if ($null -eq $Release -or $Release.tag_name -cne "v0.3.3") {
+  if ($null -eq $Release -or $Release.tag_name -cne "v0.4.0") {
     throw "public Release gate returned the wrong tag"
   }
   if ($Release.draft -isnot [bool] -or $Release.draft) {
-    throw "public v0.3.3 Release must not be a draft"
+    throw "public v0.4.0 Release must not be a draft"
   }
   if ($Release.prerelease -isnot [bool] -or $Release.prerelease) {
-    throw "public v0.3.3 Release must not be a prerelease"
+    throw "public v0.4.0 Release must not be a prerelease"
   }
 
   $AssetNames = @()
@@ -60,7 +66,7 @@ function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
   }
   foreach ($Name in $RequiredAssets) {
     if (-not ($AssetNames -ccontains $Name)) {
-      throw "public v0.3.3 Release is missing required asset: $Name"
+      throw "public v0.4.0 Release is missing required asset: $Name"
     }
   }
 }
@@ -376,6 +382,59 @@ function Assert-AgentBootstrapExtractedSource(
   }
 }
 
+function Assert-AgentBootstrapOfflinePackage([string]$Package) {
+  $Paths = @("install.sh", "install.ps1", "go.mod", "LICENSE", "scripts/setup.sh", "scripts/offline-binary.sh", "scripts/offline-binary.ps1",
+    "scripts/run-image2-mcp.sh", "scripts/run-image2-mcp.ps1",
+    "scripts/bootstrap-agent-install.sh", "scripts/bootstrap-agent-install.ps1", "dist/image2-mcp.exe")
+  Assert-AgentBootstrapExtractedSource $Package ($Paths + @("OFFLINE_PACKAGE_MANIFEST"))
+  $ManifestPath = Join-Path $Package "OFFLINE_PACKAGE_MANIFEST"
+  if ((Get-Item -LiteralPath $ManifestPath).Length -gt 16384) {
+    throw "offline package manifest is too large"
+  }
+  $Text = [IO.File]::ReadAllText($ManifestPath)
+  if ($Text -cmatch '[^\x20-\x7E\n]' -or -not $Text.EndsWith("`n")) {
+    throw "offline package manifest has invalid characters"
+  }
+  $Lines = @($Text.Substring(0, $Text.Length - 1).Split([char]10))
+  $NativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+  $Arch = switch ($NativeArchitecture.ToUpperInvariant()) {
+    "ARM64" { "arm64" }
+    "AMD64" { "amd64" }
+    "X86" { "386" }
+    default { throw "unsupported offline package architecture" }
+  }
+  if ($Lines.Count -ne 15 -or $Lines[0] -cne "IMAGE2_MCP_OFFLINE 1" -or
+      $Lines[1] -cne "version 0.4.2" -or $Lines[2] -cne "platform windows $Arch") {
+    throw "offline package version, platform, or manifest format mismatch"
+  }
+  [long]$Total = 0
+  for ($Index = 0; $Index -lt $Paths.Count; $Index++) {
+    $Record = [regex]::Match($Lines[$Index + 3], '^file ([0-9a-f]{64}) (0|[1-9][0-9]{0,8}) ([A-Za-z0-9/._-]+)$')
+    if (-not $Record.Success -or $Record.Groups[3].Value -cne $Paths[$Index]) {
+      throw "offline package has an invalid file record"
+    }
+    $File = Get-Item -LiteralPath (Join-Path $Package $Paths[$Index]) -Force
+    if ($File.Length -ne [long]$Record.Groups[2].Value) {
+      throw "offline package file length mismatch: $($Paths[$Index])"
+    }
+    $Total += $File.Length
+    if ($Total -gt 134217728) { throw "offline package exceeds 128 MiB" }
+    $Digest = (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($Digest -cne $Record.Groups[1].Value) {
+      throw "offline package SHA-256 mismatch: $($Paths[$Index])"
+    }
+  }
+  if (@(Get-ChildItem -LiteralPath $Package -Recurse -Force -File).Count -ne 13) {
+    throw "offline package contains unlisted files"
+  }
+  foreach ($Directory in Get-ChildItem -LiteralPath $Package -Recurse -Force -Directory) {
+    if ($Directory.FullName -cne (Join-Path $Package "scripts") -and
+        $Directory.FullName -cne (Join-Path $Package "dist")) {
+      throw "offline package contains an unexpected directory"
+    }
+  }
+}
+
 function New-AgentBootstrapConfigSnapshot([string]$ConfigPath, [string]$SnapshotPath) {
   $State = [PSCustomObject]@{
     Path = $ConfigPath
@@ -430,21 +489,36 @@ function Restore-AgentBootstrapConfig($State) {
 
 function Invoke-AgentBootstrapInstaller(
   [string]$InstallerPath,
-  [string]$RepositorySlug
+  [string]$RepositorySlug,
+  [bool]$Offline = $false
 ) {
   $PowerShell = Get-Command powershell.exe -CommandType Application -ErrorAction Stop
   $PreviousRepository = [Environment]::GetEnvironmentVariable("IMAGE2_MCP_REPO", "Process")
+  $ProviderKeys = @{}
+  foreach ($KeyName in @("OPENAI_IMAGE_API_KEY", "GEMINI_IMAGE_API_KEY")) {
+    $ProviderKeys[$KeyName] = [Environment]::GetEnvironmentVariable($KeyName, "Process")
+  }
   try {
+    foreach ($KeyName in $ProviderKeys.Keys) {
+      [Environment]::SetEnvironmentVariable($KeyName, $null, "Process")
+    }
     [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", $RepositorySlug, "Process")
     Push-Location (Split-Path -Parent $InstallerPath)
     try {
-      & $PowerShell.Source -NoProfile -ExecutionPolicy Bypass -File $InstallerPath -KeyOnly
+      $InstallerArguments = @("-KeyOnly")
+      if ($Offline) {
+        $InstallerArguments += "-Offline"
+      }
+      & $PowerShell.Source -NoProfile -ExecutionPolicy Bypass -File $InstallerPath @InstallerArguments
       $InstallerExitCode = $LASTEXITCODE
     } finally {
       Pop-Location
     }
   } finally {
     [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", $PreviousRepository, "Process")
+    foreach ($KeyName in $ProviderKeys.Keys) {
+      [Environment]::SetEnvironmentVariable($KeyName, $ProviderKeys[$KeyName], "Process")
+    }
   }
   if ($InstallerExitCode -ne 0) {
     throw "key-only installer failed; the previous target will be restored"
@@ -535,12 +609,19 @@ function Restore-AgentBootstrapTransaction(
 }
 
 function Invoke-AgentBootstrap {
+  [CmdletBinding()]
+  param(
+    [ValidateNotNullOrEmpty()]
+    [string]$OfflinePackage
+  )
+
+  $Offline = $PSBoundParameters.ContainsKey("OfflinePackage")
   $ErrorActionPreference = "Stop"
   $RepositoryUrl = "https://github.com/Schyler0427/image2-mcp.git"
   $RepositorySlug = "Schyler0427/image2-mcp"
-  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.3.3"
-  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.3.3.zip"
-  $SourceRoot = "image2-mcp-0.3.3"
+  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0"
+  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.zip"
+  $SourceRoot = "image2-mcp-0.4.0"
   $BaseUrl = "https://api.schyler.top"
   $RequiredAssets = @(
     "image2-mcp_darwin_arm64.tar.gz",
@@ -585,13 +666,15 @@ function Invoke-AgentBootstrap {
   $RetainTransaction = $false
 
   try {
-    Enable-Image2Tls12
-    Write-Host "Checking public Release..."
-    try {
-      $Release = Invoke-AgentBootstrapMetadata $ReleaseApi
-      Assert-AgentBootstrapRelease $Release $RequiredAssets
-    } catch {
-      throw "public v0.3.3 Release gate failed: $($_.Exception.Message)"
+    if (-not $Offline) {
+      Enable-Image2Tls12
+      Write-Host "Checking public Release..."
+      try {
+        $Release = Invoke-AgentBootstrapMetadata $ReleaseApi
+        Assert-AgentBootstrapRelease $Release $RequiredAssets
+      } catch {
+        throw "public v0.4.0 Release gate failed: $($_.Exception.Message)"
+      }
     }
 
     $ExistingTarget = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
@@ -600,30 +683,34 @@ function Invoke-AgentBootstrap {
       $Repeat = $true
     }
 
-    $ArchivePath = Join-Path $TransactionPath "source.zip"
-    Write-Host "Downloading source package..."
-    Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri $SourceUrl -OutFile $ArchivePath
-    Assert-AgentBootstrapZip $ArchivePath $SourceRoot $RequiredArchivePaths
-    Write-Host "Preparing installation..."
+    if ($Offline) {
+      Assert-AgentBootstrapPlainDirectory $OfflinePackage "offline package root"
+      $OfflinePackage = (Get-Item -LiteralPath $OfflinePackage -Force).FullName
+      Assert-AgentBootstrapOfflinePackage $OfflinePackage
+      Write-Host "Preparing installation..."
+      $StagePath = Join-Path $TransactionPath "stage"
+      Copy-Item -LiteralPath $OfflinePackage -Destination $StagePath -Recurse -Force
+      Assert-AgentBootstrapOfflinePackage $StagePath
+      . (Join-Path $PSScriptRoot "offline-binary.ps1")
+      Test-OfflineBinary $StagePath
+    } else {
+      $ArchivePath = Join-Path $TransactionPath "source.zip"
+      Write-Host "Downloading source package..."
+      Invoke-WebRequest -UseBasicParsing -TimeoutSec 60 -Uri $SourceUrl -OutFile $ArchivePath
+      Assert-AgentBootstrapZip $ArchivePath $SourceRoot $RequiredArchivePaths
+      Write-Host "Preparing installation..."
 
-    $ExtractPath = Join-Path $TransactionPath "extract"
-    [IO.Directory]::CreateDirectory($ExtractPath) | Out-Null
-    [IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $ExtractPath)
-    $StagePath = Join-Path $ExtractPath $SourceRoot
-    Assert-AgentBootstrapExtractedSource $StagePath $RequiredStagePaths
+      $ExtractPath = Join-Path $TransactionPath "extract"
+      [IO.Directory]::CreateDirectory($ExtractPath) | Out-Null
+      [IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $ExtractPath)
+      $StagePath = Join-Path $ExtractPath $SourceRoot
+      Assert-AgentBootstrapExtractedSource $StagePath $RequiredStagePaths
+    }
     [IO.File]::WriteAllText(
       (Join-Path $StagePath ".image2-mcp-managed"),
       $RepositorySlug,
       (New-Object Text.UTF8Encoding($false))
     )
-    if ($Repeat -and (Test-Path (Join-Path $Target ".env.local"))) {
-      $ExistingEnv = Get-Item -LiteralPath (Join-Path $Target ".env.local") -Force
-      if ($ExistingEnv.PSIsContainer -or (Test-AgentBootstrapReparsePoint $ExistingEnv)) {
-        throw "existing API Key configuration is not a regular file"
-      }
-      Copy-Item -LiteralPath $ExistingEnv.FullName -Destination (Join-Path $StagePath ".env.local") -Force
-    }
-
     $ConfigState = New-AgentBootstrapConfigSnapshot $ConfigPath (Join-Path $TransactionPath "config.toml.before")
     if ($Repeat) {
       $BackupRoot = New-AgentBootstrapDirectory $Parent "image2-mcp.backup."
@@ -634,7 +721,7 @@ function Invoke-AgentBootstrap {
     [IO.Directory]::Move($StagePath, $Target)
 
     Write-Host "Installing platform binary..."
-    Invoke-AgentBootstrapInstaller (Join-Path $Target "install.ps1") $RepositorySlug
+    Invoke-AgentBootstrapInstaller (Join-Path $Target "install.ps1") $RepositorySlug $Offline
     Write-Host "Verifying local installation..."
     Write-Host "Verification: OK"
     Write-Host "Install directory: $Target"
@@ -675,5 +762,5 @@ function Invoke-AgentBootstrap {
 }
 
 if ($MyInvocation.InvocationName -ne ".") {
-  Invoke-AgentBootstrap
+  Invoke-AgentBootstrap @PSBoundParameters
 }

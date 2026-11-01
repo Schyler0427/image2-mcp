@@ -15,8 +15,8 @@ import (
 )
 
 func TestServerVersion(t *testing.T) {
-	if serverVersion != "0.3.3" {
-		t.Fatalf("serverVersion = %q, want 0.3.3", serverVersion)
+	if serverVersion != "0.4.2" {
+		t.Fatalf("serverVersion = %q, want 0.4.2", serverVersion)
 	}
 }
 
@@ -46,10 +46,10 @@ func TestServerListsGenerateImage2AndEditImage2Tools(t *testing.T) {
 		}
 		names = append(names, tool.Name)
 	}
-	if len(names) != 2 {
-		t.Fatalf("tools = %v, want [edit_image2 generate_image2]", names)
+	if len(names) != 4 {
+		t.Fatalf("tools = %v, want generic and legacy generation/editing tools", names)
 	}
-	want := map[string]bool{"generate_image2": true, "edit_image2": true}
+	want := map[string]bool{"generate_image2": true, "edit_image2": true, "generate_image": true, "edit_image": true}
 	for _, n := range names {
 		if !want[n] {
 			t.Fatalf("unexpected tool %q", n)
@@ -74,6 +74,9 @@ func TestServerInstructionsAndToolDescriptions(t *testing.T) {
 	defer clientSession.Close()
 
 	instructions := clientSession.InitializeResult().Instructions
+	if !strings.Contains(instructions, "The default is Image2") || !strings.Contains(instructions, "Only explicit 使用 Gemini 生图 / 香蕉生图 / banana 生图") {
+		t.Fatalf("incorrect natural-language routing instructions: %s", instructions)
+	}
 	metadata := instructions
 	tools, err := clientSession.ListTools(ctx, nil)
 	if err != nil {
@@ -95,6 +98,11 @@ func TestServerInstructionsAndToolDescriptions(t *testing.T) {
 		"~ paths",
 		`version: "2.5"`,
 		"Image 2.5 requests must pass version",
+		"default is Image2",
+		"香蕉生图",
+		"banana 生图",
+		"call edit_image directly",
+		`model: "image2.5"`,
 	} {
 		if !strings.Contains(metadata, phrase) {
 			t.Errorf("metadata missing %q: %q", phrase, metadata)

@@ -16,6 +16,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - name: Check release version
         shell: bash
         run: |
@@ -27,12 +30,15 @@ jobs:
           bash tests/test-install-key-only.sh
           bash tests/test-agent-install-contract.sh
           bash tests/test-agent-bootstrap.sh
+          bash tests/test-offline-package.sh
+          bash tests/test-offline-install.sh
       - name: Test PowerShell installer
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           ./tests/test-install-key-only.ps1
           ./tests/test-agent-bootstrap.ps1
+          ./tests/test-offline-install.ps1
 
   build:
     needs: installer-tests
@@ -72,12 +78,16 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then
             ext=".exe"
           fi
-          GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" go build -o "dist/image2-mcp${ext}" ./cmd/image2-mcp
+          CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" go build -trimpath -o "dist/image2-mcp${ext}" ./cmd/image2-mcp
           if [ "${{ matrix.goos }}" = "windows" ]; then
             (cd dist && zip "../release/${name}.zip" "image2-mcp${ext}")
           else
             tar -czf "release/${name}.tar.gz" -C dist image2-mcp
           fi
+          version=$(sed -n 's/^const serverVersion = "\([^"]*\)"/\1/p' cmd/image2-mcp/main.go)
+          bash scripts/build-offline-package.sh \
+            --os "${{ matrix.goos }}" --arch "${{ matrix.goarch }}" \
+            --binary "dist/image2-mcp${ext}" --version "$version" --output release
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -93,7 +103,18 @@ jobs:
         with:
           path: release
           merge-multiple: true
-      - name: Publish all six release assets
+      - name: Verify complete release and checksum offline packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for platform in darwin_arm64 darwin_amd64 linux_arm64 linux_amd64 windows_arm64 windows_amd64; do
+            ext=tar.gz
+            case "$platform" in windows_*) ext=zip ;; esac
+            test -s "release/image2-mcp_${platform}.${ext}"
+            test -s "release/image2-mcp-offline_${platform}.${ext}"
+          done
+          (cd release && sha256sum image2-mcp-offline_*.tar.gz image2-mcp-offline_*.zip > SHA256SUMS.txt)
+      - name: Publish binaries and complete offline packages
         uses: softprops/action-gh-release@v2
         with:
           files: release/*

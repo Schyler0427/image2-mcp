@@ -77,6 +77,9 @@ $ConfigFile = Join-Path $TestHome ".codex\config.toml"
 $EnvFile = Join-Path $Repo ".env.local"
 
 $SavedEnvironment = @{}
+foreach ($Name in @("PATH", "RUN_IMAGE2_SMOKE", "IMAGE2_MCP_REPO", "IMAGE2_MCP_TEST_GO_LOG")) {
+  $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
+}
 foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELEASE_ZIP", "IMAGE2_MCP_TEST_INSTALLER", "IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "IMAGE2_MCP_TEST_EXPECTED_API_KEY", "IMAGE2_MCP_TEST_VERIFY_MODE", "IMAGE2_MCP_TEST_VERIFY_PIDS", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_API_KEY")) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
@@ -84,6 +87,7 @@ foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELE
 try {
   New-Item -ItemType Directory -Force -Path (Join-Path $TestHome ".codex"), (Join-Path $Repo "scripts"), $Payload | Out-Null
   Copy-Item (Join-Path $Root "install.ps1") $script:Installer
+  Copy-Item (Join-Path $Root "scripts\offline-binary.ps1") (Join-Path $Repo "scripts\offline-binary.ps1")
   Copy-Item (Join-Path $Root "scripts\run-image2-mcp.ps1") (Join-Path $Repo "scripts\run-image2-mcp.ps1")
   $RunnerSource = @'
 using System;
@@ -93,6 +97,10 @@ using System.Threading;
 
 public static class Program {
   public static int Main(string[] args) {
+    if (args.Length == 1 && args[0] == "--version") {
+      Console.WriteLine("image2-mcp 0.4.2 offline-v1 windows __ARCH__");
+      return 0;
+    }
     bool baseUrlMatches = String.Equals(
       Environment.GetEnvironmentVariable("OPENAI_IMAGE_BASE_URL"),
       Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_BASE_URL"),
@@ -138,7 +146,9 @@ public static class Program {
   }
 }
 '@
-  Add-Type -TypeDefinition $RunnerSource -Language CSharp -OutputAssembly (Join-Path $Payload "image2-mcp.exe") -OutputType ConsoleApplication
+  $NativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+  $FixtureArch = switch ($NativeArchitecture.ToUpperInvariant()) { "ARM64" { "arm64" }; "AMD64" { "amd64" }; "X86" { "386" }; default { throw "unsupported fixture architecture" } }
+  Add-Type -TypeDefinition $RunnerSource.Replace("__ARCH__", $FixtureArch) -Language CSharp -OutputAssembly (Join-Path $Payload "image2-mcp.exe") -OutputType ConsoleApplication
   Compress-Archive -Path (Join-Path $Payload "image2-mcp.exe") -DestinationPath $Fixture
   [IO.File]::WriteAllText($script:Harness, @'
 $ErrorActionPreference = "Stop"
@@ -146,6 +156,9 @@ $ErrorActionPreference = "Stop"
 
 function Invoke-WebRequest {
   param([string]$Uri, [string]$OutFile, [int]$TimeoutSec, [switch]$UseBasicParsing)
+  if ($env:IMAGE2_MCP_TEST_FORBID_DOWNLOAD -eq "1") {
+    throw "offline installation attempted a network request"
+  }
   if (-not $UseBasicParsing) {
     throw "fixture download did not use basic parsing"
   }
@@ -187,6 +200,11 @@ Invoke-Installer
 
   $InitialConfig = @'
 model = "gpt-5"
+# OPENAI_IMAGE_API_KEY and GEMINI_IMAGE_API_KEY are names documented here.
+
+[mcp_servers.other.env]
+OPENAI_IMAGE_API_KEY = "other-provider-image-key"
+GEMINI_IMAGE_API_KEY = "other-provider-gemini-key"
 
 [mcp_servers.image2]
 command = "C:\old\runner.ps1"
@@ -221,12 +239,51 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
 
   $Secret = 'sk-test-do-not-print'
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY", $Secret, "Process")
+  # Seed an offline binary directly; no online installation has run yet.
+  New-Item -ItemType Directory -Force -Path (Join-Path $Repo "dist") | Out-Null
+  $OfflineFixtureBinary = Join-Path $Repo "dist\image2-mcp.exe"
+  [IO.File]::WriteAllText($OfflineFixtureBinary, "not an executable")
+  $PreOfflineConfig = Get-FileFingerprint $ConfigFile
+  $CorruptOffline = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-Offline")
+  Assert-True ($CorruptOffline.ExitCode -ne 0) "offline installer accepted corrupt binary"
+  Assert-True ($CorruptOffline.Output.Contains("offline binary version/platform check failed")) "corrupt offline binary error is unclear"
+  Assert-True (-not $CorruptOffline.Output.Contains("OPENAI_IMAGE_API_KEY:")) "corrupt binary prompted for Key"
+  Assert-True (-not (Test-Path $EnvFile)) "corrupt binary wrote saved Key"
+  Assert-True ((Get-FileFingerprint $ConfigFile) -eq $PreOfflineConfig) "corrupt binary changed config"
+  Copy-Item -LiteralPath (Join-Path $Payload "image2-mcp.exe") -Destination $OfflineFixtureBinary -Force
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_FORBID_DOWNLOAD", "1", "Process")
+  try {
+    $Offline = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-Offline") -InputText ($Secret + "`r`n")
+    Assert-True ($Offline.ExitCode -eq 0) "offline installer failed: $($Offline.Output)"
+    Assert-True ($Offline.Output.Contains("Verification: OK")) "offline verification marker missing"
+    Assert-True (-not $Offline.Output.Contains($Secret)) "offline installer leaked API Key"
+    $OfflineBinary = Join-Path $Repo "dist\image2-mcp.exe"
+    Move-Item -LiteralPath $OfflineBinary -Destination ($OfflineBinary + ".saved")
+    $OfflineConfigHash = Get-FileFingerprint $ConfigFile
+    $OfflineEnvHash = Get-FileFingerprint $EnvFile
+    try {
+      $MissingOffline = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-Offline")
+      Assert-True ($MissingOffline.ExitCode -ne 0) "offline installer accepted missing binary"
+      Assert-True ($MissingOffline.Output.Contains("offline package is missing a regular bundled binary")) "missing offline binary error is unclear"
+      Assert-True (-not $MissingOffline.Output.Contains("OPENAI_IMAGE_API_KEY:")) "missing offline binary prompted for Key"
+      Assert-True ((Get-FileFingerprint $ConfigFile) -eq $OfflineConfigHash) "missing offline binary changed config"
+      Assert-True ((Get-FileFingerprint $EnvFile) -eq $OfflineEnvHash) "missing offline binary changed saved Key"
+    } finally {
+      Move-Item -LiteralPath ($OfflineBinary + ".saved") -Destination $OfflineBinary
+    }
+    $BadOffline = Invoke-TestInstaller -InstallerArgs @("-Offline")
+    Assert-True ($BadOffline.ExitCode -ne 0) "-Offline succeeded without -KeyOnly"
+    Assert-True ($BadOffline.Output.Contains("-Offline requires -KeyOnly")) "offline conflict error is unclear"
+  } finally {
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_FORBID_DOWNLOAD", $null, "Process")
+  }
+
   $Result = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`nignored-second-line`r`n")
   Assert-True ($Result.ExitCode -eq 0) "Key-only install failed: $($Result.Output)"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
   Assert-True (-not $Result.Output.Contains($Secret)) "API Key leaked to output"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"
-  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.3/")) "Release tag is not fixed"
+  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.0/")) "Release tag is not fixed"
   Assert-True ($Result.Output.Contains("Base URL: https://api.schyler.top")) "reported base URL is not fixed"
   Assert-True (-not $Result.Output.Contains("legacy-key-must-not-win")) "legacy API Key leaked to output"
 
@@ -234,11 +291,11 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   [IO.File]::WriteAllText($ManagedMarker, "managed test installation", (New-Object Text.UTF8Encoding($false)))
   $ManagedEnvHash = Get-FileFingerprint $EnvFile
   try {
-    # Empty stdin proves a managed repeat reuses the saved key without prompting.
-    $ManagedRepeat = Invoke-TestInstaller -InstallerArgs @("-KeyOnly")
+    # A managed repeat must prompt for a separately supplied Image2 key.
+    $ManagedRepeat = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
     Assert-True ($ManagedRepeat.ExitCode -eq 0) "managed repeat install failed: $($ManagedRepeat.Output)"
-    Assert-True ($ManagedRepeat.Output.Contains("reusing it")) "managed repeat did not reuse the existing key"
-    Assert-True (-not $ManagedRepeat.Output.Contains("OPENAI_IMAGE_API_KEY:")) "managed repeat prompted for a key"
+    Assert-True (-not $ManagedRepeat.Output.Contains("reusing it")) "managed repeat reused the existing key"
+    Assert-True ($ManagedRepeat.Output.Contains("OPENAI_IMAGE_API_KEY:")) "managed repeat did not prompt for Image2 key"
     Assert-True (-not $ManagedRepeat.Output.Contains($Secret)) "managed repeat leaked the saved key"
     Assert-True ($ManagedRepeat.Output.Contains("Verification: OK")) "managed repeat verification marker missing"
     Assert-True ((Get-FileFingerprint $EnvFile) -eq $ManagedEnvHash) "managed repeat changed the saved environment"
@@ -249,6 +306,8 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   $Config = [IO.File]::ReadAllText($ConfigFile)
   Assert-True ($Config.Contains('model = "gpt-5"')) "top-level Codex config was removed"
   Assert-True ($Config.Contains('[mcp_servers.keep]')) "unrelated MCP config was removed"
+  Assert-True ($Config.Contains('OPENAI_IMAGE_API_KEY = "other-provider-image-key"')) "unrelated Image2 provider key was removed"
+  Assert-True ($Config.Contains('GEMINI_IMAGE_API_KEY = "other-provider-gemini-key"')) "unrelated Gemini provider key was removed"
   Assert-True ($Config.Contains('[mcp_servers.image20]')) "similarly named MCP config was removed"
   Assert-True ($Config.Contains('C:\keep\image20-runner.exe')) "similarly named MCP runner was removed"
   Assert-True (-not $Config.Contains('C:\old\runner.ps1')) "old Image2 root config remains"
@@ -326,6 +385,27 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   $ExpectedSecret = $Secret
   . $script:Installer
   Assert-True ($Secret -ceq $ExpectedSecret) "test secret variable changed after dot-sourcing installer"
+  $BoundaryImageKey = $env:OPENAI_IMAGE_API_KEY
+  $BoundaryGeminiKey = $env:GEMINI_IMAGE_API_KEY
+  try {
+    $env:OPENAI_IMAGE_API_KEY = "boundary-image"
+    $env:GEMINI_IMAGE_API_KEY = "boundary-gemini"
+    $IsolationThrew = $false
+    try {
+      Invoke-WithoutImageCredentials {
+        Assert-True (-not $env:OPENAI_IMAGE_API_KEY -and -not $env:GEMINI_IMAGE_API_KEY) "isolated action received provider keys"
+        throw "fixture isolated failure"
+      }
+    } catch {
+      Assert-True ($_.Exception.Message -eq "fixture isolated failure") "unexpected isolated action failure"
+      $IsolationThrew = $true
+    }
+    Assert-True $IsolationThrew "isolated failure did not propagate"
+    Assert-True ($env:OPENAI_IMAGE_API_KEY -ceq "boundary-image" -and $env:GEMINI_IMAGE_API_KEY -ceq "boundary-gemini") "isolated failure did not restore caller credentials"
+  } finally {
+    $env:OPENAI_IMAGE_API_KEY = $BoundaryImageKey
+    $env:GEMINI_IMAGE_API_KEY = $BoundaryGeminiKey
+  }
   $DotEnvRoundTrip = "slash\quote`"carriage`rtab`t"
   Assert-True ((ConvertFrom-DotEnvValue (ConvertTo-DotEnvValue $DotEnvRoundTrip)) -ceq $DotEnvRoundTrip) "dotenv escaping did not round-trip"
   $PrimaryRepoDir = $RepoDir
@@ -386,9 +466,25 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True $Unsupported "unsupported architecture unexpectedly succeeded"
 
   $EnvHash = (Get-FileHash $EnvFile -Algorithm SHA256).Hash
-  $Blank = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText "   `r`n"
+  $Blank = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText "   `r`n `t`r`n"
   Assert-True ($Blank.ExitCode -ne 0) "blank API Key unexpectedly succeeded"
   Assert-True (((Get-FileHash $EnvFile -Algorithm SHA256).Hash) -eq $EnvHash) "blank API Key changed .env.local"
+
+  foreach ($Provider in @("image2", "gemini")) {
+    $ExpectedImage = if ($Provider -eq "image2") { $Secret } else { $null }
+    $ExpectedGemini = if ($Provider -eq "gemini") { $GeminiSecret } else { $null }
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY", $ExpectedImage, "Process")
+    [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_GEMINI_KEY", $ExpectedGemini, "Process")
+    $OptionalInput = if ($Provider -eq "image2") { $Secret + "`r`n `t`r`n" } else { " `t`r`n" + $GeminiSecret + "`r`n" }
+    $OptionalResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText $OptionalInput
+    Assert-True ($OptionalResult.ExitCode -eq 0) "$Provider-only installation failed: $($OptionalResult.Output)"
+    Assert-True ($OptionalResult.Output.Contains("Verification: OK")) "$Provider-only MCP verification missing"
+    Import-DotEnv $EnvFile
+    Assert-True ([string]$env:OPENAI_IMAGE_API_KEY -ceq [string]$ExpectedImage) "$Provider-only Image2 configuration reused a key"
+    Assert-True ([string]$env:GEMINI_IMAGE_API_KEY -ceq [string]$ExpectedGemini) "$Provider-only Gemini configuration reused a key"
+  }
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY", $Secret, "Process")
+  [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_GEMINI_KEY", $GeminiSecret, "Process")
 
   $Conflict = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-BaseUrl", "https://example.invalid")
   Assert-True ($Conflict.ExitCode -ne 0) "conflicting key-only options unexpectedly succeeded"
@@ -511,7 +607,56 @@ mcp_servers.keep.command = "ok"
   Assert-True ($SiblingAssignmentLines -ccontains 'mcp_servers.keep.command = "ok"') "root dotted sibling assignment was not preserved"
   Assert-True ($SiblingAssignmentLines -ccontains '"mcp_servers" . "keep-quoted" . command = "quoted ok"') "quoted root dotted sibling assignment was not preserved"
 
-  Write-Host "PASS: PowerShell key-only installer"
+  # The advanced paths must not expose imported or ambient provider keys to
+  # actual child processes. Only an explicit Image2 smoke invocation gets its key.
+  $FakeGoDir = Join-Path $TempRoot "fake-go"
+  $AdvancedGoLog = Join-Path $TempRoot "advanced-go.log"
+  New-Item -ItemType Directory -Force -Path $FakeGoDir | Out-Null
+  $FakeGoType = "Image2InstallerGo_" + [Guid]::NewGuid().ToString("N")
+  $FakeGoSource = @'
+using System;
+using System.IO;
+public static class __FAKE_GO_TYPE__ {
+  public static int Main(string[] args) {
+    string image = Environment.GetEnvironmentVariable("OPENAI_IMAGE_API_KEY");
+    string gemini = Environment.GetEnvironmentVariable("GEMINI_IMAGE_API_KEY");
+    bool smoke = Environment.GetEnvironmentVariable("RUN_IMAGE2_SMOKE") == "1";
+    if (smoke) {
+      if (image != "advanced-image" || !String.IsNullOrEmpty(gemini)) return 94;
+    } else if (!String.IsNullOrEmpty(image) || !String.IsNullOrEmpty(gemini)) return 93;
+    File.AppendAllText(Environment.GetEnvironmentVariable("IMAGE2_MCP_TEST_GO_LOG"),
+      (smoke ? "smoke" : args[0]) + Environment.NewLine);
+    return 0;
+  }
+}
+'@
+  $FakeGoSource = $FakeGoSource.Replace("__FAKE_GO_TYPE__", $FakeGoType)
+  Add-Type -TypeDefinition $FakeGoSource -Language CSharp -OutputAssembly (Join-Path $FakeGoDir "go.exe") -OutputType ConsoleApplication
+  $env:PATH = $FakeGoDir + [IO.Path]::PathSeparator + $env:PATH
+  $env:IMAGE2_MCP_TEST_GO_LOG = $AdvancedGoLog
+  $env:IMAGE2_MCP_REPO = "Schyler0427/image2-mcp"
+  $env:RUN_IMAGE2_SMOKE = $null
+  foreach ($AdvancedMode in @("prebuilt", "source", "existing-smoke", "ambient-source")) {
+    $AdvancedArgs = switch ($AdvancedMode) {
+      "prebuilt" { @("-Interactive", "-Prebuilt", "-SkipTests") }
+      "source" { @("-Interactive") }
+      "existing-smoke" { @("-Smoke") }
+      "ambient-source" { @("-BaseUrl", "https://api.schyler.top") }
+    }
+    if ($AdvancedMode -eq "ambient-source") {
+      Remove-Item -Force -ErrorAction SilentlyContinue $EnvFile, (Join-Path $Repo ".env")
+    }
+    $env:OPENAI_IMAGE_API_KEY = "ambient-image"
+    $env:GEMINI_IMAGE_API_KEY = "ambient-gemini"
+    $AdvancedResult = Invoke-TestInstaller -InstallerArgs $AdvancedArgs -InputText "`r`nadvanced-image`r`nadvanced-gemini`r`n"
+    Assert-True ($AdvancedResult.ExitCode -eq 0) "advanced $AdvancedMode install exposed credentials or failed: $($AdvancedResult.Output)"
+    Assert-True (-not $AdvancedResult.Output.Contains("advanced-image")) "advanced $AdvancedMode exposed Image2 credential"
+    Assert-True (-not $AdvancedResult.Output.Contains("advanced-gemini")) "advanced $AdvancedMode exposed Gemini credential"
+  }
+  $ExpectedGoCalls = @("test", "build", "test", "build", "smoke", "test", "build")
+  Assert-True (([IO.File]::ReadAllLines($AdvancedGoLog) -join ",") -ceq ($ExpectedGoCalls -join ",")) "advanced build/smoke fixture did not run all intended child processes"
+
+  Write-Host "PASS: PowerShell key-only installer and advanced credential isolation"
 } finally {
   foreach ($Name in $SavedEnvironment.Keys) {
     [Environment]::SetEnvironmentVariable($Name, $SavedEnvironment[$Name], "Process")

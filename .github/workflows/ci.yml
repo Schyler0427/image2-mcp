@@ -14,7 +14,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -25,15 +25,23 @@ jobs:
         run: go test ./...
       - name: Vet
         run: go vet ./...
+      - name: Test native macOS launcher
+        if: runner.os == 'macOS'
+        run: bash tests/test-macos-launcher.sh
       - name: Test Bash installers
         if: runner.os == 'Linux'
         run: |
           bash tests/test-install-key-only.sh
           bash tests/test-agent-install-contract.sh
           bash tests/test-agent-bootstrap.sh
+          bash tests/test-offline-package.sh
+          bash tests/test-offline-install.sh
+          bash tests/test-universal-launcher.sh
       - name: Test Windows PowerShell 5.1 installers
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           ./tests/test-install-key-only.ps1
           ./tests/test-agent-bootstrap.ps1
+          ./tests/test-offline-install.ps1
+          ./tests/test-launcher-architecture.ps1

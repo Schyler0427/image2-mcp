@@ -3,7 +3,6 @@ package image2
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -196,11 +195,11 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 		return GenerateResult{}, err
 	}
 
-	respBody, _, _, _, err := c.doImageRequest(ctx, http.MethodPost, c.endpoint, body, "application/json")
+	respBody, headers, status, _, err := c.doImageRequest(ctx, http.MethodPost, c.endpoint, body, "application/json")
 	if err != nil {
 		return GenerateResult{}, err
 	}
-	return saveImageResponse(respBody, size, outputDir, input.OutputName, model)
+	return c.saveImageResponse(ctx, respBody, headers, status, size, outputDir, input.OutputName, model)
 }
 
 func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error) {
@@ -301,11 +300,11 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 		return EditResult{}, fmt.Errorf("finalize multipart image edit: %w", err)
 	}
 
-	respBody, _, _, _, err := c.doImageRequest(ctx, http.MethodPost, c.editsEndpoint, body.Bytes(), writer.FormDataContentType())
+	respBody, headers, status, _, err := c.doImageRequest(ctx, http.MethodPost, c.editsEndpoint, body.Bytes(), writer.FormDataContentType())
 	if err != nil {
 		return EditResult{}, err
 	}
-	return saveImageResponse(respBody, size, outputDir, input.OutputName, model)
+	return c.saveImageResponse(ctx, respBody, headers, status, size, outputDir, input.OutputName, model)
 }
 
 func (c *Client) doImageRequest(ctx context.Context, method, endpoint string, body []byte, contentType string) ([]byte, http.Header, int, int, error) {
@@ -467,24 +466,7 @@ func writeMultipartFile(writer *multipart.Writer, fieldName, path string) error 
 	return nil
 }
 
-func saveImageResponse(respBody []byte, size, outputDir, outputName, model string) (GenerateResult, error) {
-	var parsed struct {
-		Data []struct {
-			B64JSON string `json:"b64_json"`
-		} `json:"data"`
-		Error any `json:"error,omitempty"`
-	}
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return GenerateResult{}, fmt.Errorf("parse image response: %w: %s", err, summarize(respBody))
-	}
-	if len(parsed.Data) == 0 || strings.TrimSpace(parsed.Data[0].B64JSON) == "" {
-		return GenerateResult{}, fmt.Errorf("image response missing data[0].b64_json: %s", summarize(respBody))
-	}
-
-	pngBytes, err := base64.StdEncoding.DecodeString(parsed.Data[0].B64JSON)
-	if err != nil {
-		return GenerateResult{}, fmt.Errorf("decode data[0].b64_json: %w", err)
-	}
+func savePNG(pngBytes []byte, size, outputDir, outputName, model string) (GenerateResult, error) {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return GenerateResult{}, fmt.Errorf("create output directory: %w", err)
 	}

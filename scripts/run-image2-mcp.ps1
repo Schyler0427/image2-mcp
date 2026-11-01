@@ -54,6 +54,11 @@ function Import-DotEnv([string]$Path) {
   }
 }
 
+# Image provider credentials belong to this installation, never the parent
+# Codex process or another tool. Missing local credentials remain missing.
+$env:OPENAI_IMAGE_API_KEY = $null
+$env:GEMINI_IMAGE_API_KEY = $null
+
 $LocalEnv = Join-Path $RepoDir ".env.local"
 if (Test-Path $LocalEnv) {
   Import-DotEnv $LocalEnv

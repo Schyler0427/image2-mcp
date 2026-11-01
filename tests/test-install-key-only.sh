@@ -35,11 +35,19 @@ fixture="$tmp/image2-mcp.tar.gz"
 mkdir -p "$home/.codex" "$repo/scripts" "$fakebin" "$tmp/payload"
 cp "$root/install.sh" "$repo/install.sh"
 cp "$root/scripts/setup.sh" "$repo/scripts/setup.sh"
+cp "$root/scripts/offline-binary.sh" "$repo/scripts/offline-binary.sh"
 cp "$root/scripts/run-image2-mcp.sh" "$repo/scripts/run-image2-mcp.sh"
 chmod +x "$repo/install.sh" "$repo/scripts/"*.sh
 
 cat > "$tmp/payload/image2-mcp" <<'BIN'
 #!/usr/bin/env bash
+if [[ "${1:-}" == --version ]]; then
+  [[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_BASE_URL:-}" && -z "${GEMINI_IMAGE_MODEL:-}" ]] || exit 93
+  case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; esac
+  case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
+  echo "image2-mcp 0.4.2 offline-v1 $os $arch"
+  exit 0
+fi
 if [[ "${1:-}" == --verify-mcp && "${IMAGE2_MCP_TEST_VERIFY_MODE:-}" != missing-marker ]]; then
   echo 'MCP verification: OK'
 fi
@@ -51,6 +59,7 @@ tar -czf "$fixture" -C "$tmp/payload" image2-mcp
 cat > "$fakebin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" ]] || exit 93
 if [[ -n "${IMAGE2_MCP_TEST_CURL_ARGS:-}" ]]; then
   printf '%s\n' "$*" >"$IMAGE2_MCP_TEST_CURL_ARGS"
 fi
@@ -106,9 +115,49 @@ assert_not_contains "$key_help_output" 'OPENAI_IMAGE_API_KEY:'
 [[ ! -e "$repo/dist" ]] || fail '--key-only --help created dist'
 
 secret='sk-test-do-not-print'
+gemini_secret='gemini-test-do-not-print'
+offline_repo="$tmp/offline-repo"
+offline_home="$tmp/offline-home"
+mkdir -p "$offline_repo/scripts" "$offline_repo/dist" "$offline_home"
+cp "$repo/install.sh" "$offline_repo/install.sh"
+cp "$repo/scripts/"*.sh "$offline_repo/scripts/"
+offline_network_log="$tmp/offline-network.log"
+printf 'not a valid executable\n' > "$offline_repo/dist/image2-mcp"
+if HOME="$offline_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_CURL_FAIL=1 \
+  "$offline_repo/install.sh" --key-only --offline </dev/null >"$tmp/offline-corrupt.log" 2>&1; then
+  fail 'offline installer accepted a corrupt nonempty binary'
+fi
+assert_contains "$tmp/offline-corrupt.log" 'offline binary version/platform check failed'
+assert_not_contains "$tmp/offline-corrupt.log" 'OPENAI_IMAGE_API_KEY:'
+[[ ! -e "$offline_repo/.env.local" && ! -e "$offline_home/.codex/config.toml" ]] || fail 'corrupt offline binary changed Key/config'
+cp "$tmp/payload/image2-mcp" "$offline_repo/dist/image2-mcp"
+printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$offline_home" PATH="$fakebin:$PATH" GEMINI_IMAGE_API_KEY=ambient-gemini-key GEMINI_IMAGE_BASE_URL=https://ambient.invalid GEMINI_IMAGE_MODEL=ambient-model \
+  IMAGE2_MCP_TEST_CURL_FAIL=1 IMAGE2_MCP_TEST_CURL_ARGS="$offline_network_log" \
+  "$offline_repo/install.sh" --key-only --offline >"$tmp/offline-install.log" 2>&1 || {
+    cat "$tmp/offline-install.log" >&2
+    fail 'offline installer failed with bundled binary'
+  }
+assert_contains "$tmp/offline-install.log" 'Verification: OK'
+assert_not_contains "$tmp/offline-install.log" "$secret"
+[[ ! -e "$offline_network_log" ]] || fail 'offline installation attempted a download'
+offline_config_before="$(cksum "$offline_home/.codex/config.toml")"
+offline_env_before="$(cksum "$offline_repo/.env.local")"
+rm "$offline_repo/dist/image2-mcp"
+if HOME="$offline_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_CURL_FAIL=1 \
+  "$offline_repo/install.sh" --key-only --offline </dev/null >"$tmp/offline-missing.log" 2>&1; then
+  fail 'offline installer accepted a missing bundled binary'
+fi
+assert_contains "$tmp/offline-missing.log" 'offline package is missing a regular bundled binary'
+assert_not_contains "$tmp/offline-missing.log" 'OPENAI_IMAGE_API_KEY:'
+[[ "$(cksum "$offline_home/.codex/config.toml")" == "$offline_config_before" ]] || fail 'missing offline binary changed config'
+[[ "$(cksum "$offline_repo/.env.local")" == "$offline_env_before" ]] || fail 'missing offline binary changed saved key'
+if HOME="$offline_home" "$offline_repo/install.sh" --offline </dev/null >"$tmp/offline-conflict.log" 2>&1; then
+  fail '--offline succeeded without --key-only'
+fi
+assert_contains "$tmp/offline-conflict.log" '--offline requires --key-only'
 output="$tmp/output.log"
 curl_args="$tmp/curl-args.log"
-printf '%s\nignored-second-line\n' "$secret" |
+printf '%s\n%s\n' "$secret" "$gemini_secret" |
   HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   IMAGE2_MCP_TEST_CURL_ARGS="$curl_args" \
   IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
@@ -117,7 +166,7 @@ printf '%s\nignored-second-line\n' "$secret" |
 assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
-assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.3.3/$expected_asset"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.0/$expected_asset"
 assert_contains "$curl_args" '--connect-timeout'
 assert_contains "$curl_args" '-q -fL --retry 0'
 assert_contains "$curl_args" '10'
@@ -160,6 +209,8 @@ assert_contains "$wget_args" '--timeout=90'
 assert_not_contains "$output" "$secret"
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_BASE_URL=https://api.schyler.top'
 assert_contains "$repo/.env.local" 'OPENAI_IMAGE_API_KEY='
+assert_contains "$repo/.env.local" 'GEMINI_IMAGE_API_KEY='
+assert_not_contains "$output" "$gemini_secret"
 assert_contains "$home/.codex/config.toml" 'model = "gpt-5"'
 assert_contains "$home/.codex/config.toml" '[[profiles]]'
 assert_contains "$home/.codex/config.toml" 'name = "keep-array"'
@@ -180,19 +231,23 @@ touch "$repo/.image2-mcp-managed"
   source "$repo/.env.local"
   set +a
   [[ "$OPENAI_IMAGE_API_KEY" == "$secret" ]] || fail 'stored key did not round-trip'
+  [[ "$GEMINI_IMAGE_API_KEY" == "$gemini_secret" ]] || fail 'stored Gemini key did not round-trip'
   [[ "$OPENAI_IMAGE_BASE_URL" == 'https://api.schyler.top' ]] || fail 'stored base URL is not fixed'
 )
 
 reuse_output="$tmp/reuse-output.log"
+printf 'replacement-image-key\nreplacement-gemini-key\n' | \
 HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
-  "$repo/install.sh" --key-only </dev/null >"$reuse_output" 2>&1 || fail 'key-only upgrade with existing environment failed'
-assert_contains "$reuse_output" 'Existing API Key configuration found; reusing it.'
+  "$repo/install.sh" --key-only >"$reuse_output" 2>&1 || fail 'key-only upgrade with existing environment failed'
+assert_contains "$reuse_output" 'OPENAI_IMAGE_API_KEY:'
+assert_not_contains "$reuse_output" 'reusing it'
+( source "$repo/.env.local"; [[ "$OPENAI_IMAGE_API_KEY" == replacement-image-key && "$GEMINI_IMAGE_API_KEY" == replacement-gemini-key ]] ) || fail 'repeat ignored replacement Key'
 assert_contains "$reuse_output" 'Verification: OK'
 
-if HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+if printf 'replacement-image-key\nreplacement-gemini-key\n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   IMAGE2_MCP_TEST_VERIFY_MODE=missing-marker \
-  "$repo/install.sh" --key-only </dev/null >"$tmp/missing-marker.log" 2>&1; then
+  "$repo/install.sh" --key-only >"$tmp/missing-marker.log" 2>&1; then
   fail 'binary without MCP verification marker unexpectedly succeeded'
 fi
 assert_contains "$tmp/missing-marker.log" 'MCP handshake verification failed'
@@ -213,7 +268,7 @@ OLD = "spaced value"
 [mcp_servers.image20]
 command = "/keep/image20-runner"
 TOML
-printf '%s\n' "$secret" | HOME="$spaced_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$spaced_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/spaced-header.log" 2>&1
 assert_not_contains "$spaced_home/.codex/config.toml" '/spaced/old-runner'
 assert_not_contains "$spaced_home/.codex/config.toml" 'spaced value'
@@ -222,7 +277,7 @@ assert_contains "$spaced_home/.codex/config.toml" '/keep/image20-runner'
 [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$spaced_home/.codex/config.toml")" -eq 1 ]] || fail 'spaced Image2 root table count is not 1'
 
 before="$(cksum "$repo/dist/image2-mcp")"
-if printf '%s\n' "$secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   IMAGE2_MCP_REPO='Schyler0427/image2-mcp' IMAGE2_MCP_TEST_CURL_FAIL=1 \
   "$repo/install.sh" --key-only >"$tmp/download-failure.log" 2>&1; then
   fail 'failed prebuilt download unexpectedly succeeded'
@@ -238,7 +293,7 @@ ln -s "$symlink_target" "$symlink_payload/image2-mcp"
 tar -czf "$symlink_fixture" -C "$symlink_payload" image2-mcp
 symlink_mode_before="$(file_mode "$symlink_target")"
 symlink_binary_before="$(cksum "$repo/dist/image2-mcp")"
-if printf '%s\n' "$secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$symlink_fixture" \
+if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$symlink_fixture" \
   IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
   "$repo/install.sh" --key-only >"$tmp/symlink-archive.log" 2>&1; then
   fail 'symlink prebuilt archive unexpectedly succeeded'
@@ -257,7 +312,7 @@ model = "gpt-5"
 command = "/ambiguous/runner"
 TOML
 array_before="$(cksum "$array_home/.codex/config.toml")"
-if printf '%s\n' "$secret" | HOME="$array_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$array_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/array-header.log" 2>&1; then
   fail 'array-of-tables Image2 config unexpectedly succeeded'
 fi
@@ -276,7 +331,7 @@ command = "/quoted/old-runner"
 OLD = "quoted value"
 TOML
 quoted_before="$(cksum "$quoted_home/.codex/config.toml")"
-if printf '%s\n' "$secret" | HOME="$quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/quoted-header.log" 2>&1; then
   fail 'quoted Image2 config unexpectedly succeeded'
 fi
@@ -291,7 +346,7 @@ model = "gpt-5"
 ["mcp_servers"."image\u00320"]
 command = "/keep/quoted-image20-runner"
 TOML
-printf '%s\n' "$secret" | HOME="$quoted_image20_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$quoted_image20_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/quoted-image20.log" 2>&1
 assert_contains "$tmp/quoted-image20.log" 'Verification: OK'
 assert_contains "$quoted_image20_home/.codex/config.toml" '["mcp_servers"."image\u00320"]'
@@ -306,7 +361,7 @@ model = "gpt-5"
 command = "/literal/old-runner"
 TOML
 literal_quoted_before="$(cksum "$literal_quoted_home/.codex/config.toml")"
-if printf '%s\n' "$secret" | HOME="$literal_quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$literal_quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/literal-quoted.log" 2>&1; then
   fail 'literal quoted Image2 config unexpectedly succeeded'
 fi
@@ -322,7 +377,7 @@ model = "gpt-5"
 command = "/escaped/old-runner"
 TOML
 escaped_quoted_before="$(cksum "$escaped_quoted_home/.codex/config.toml")"
-if printf '%s\n' "$secret" | HOME="$escaped_quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$escaped_quoted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/escaped-quoted.log" 2>&1; then
   fail 'escaped quoted Image2 config unexpectedly succeeded'
 fi
@@ -339,7 +394,7 @@ assert_conflicting_assignment_refused() {
   config_before="$(cksum "$config_file")"
   env_before="$(file_fingerprint "$repo/.env.local")"
   binary_before="$(file_fingerprint "$repo/dist/image2-mcp")"
-  if printf '%s\n' "$secret" | HOME="$conflict_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$conflict_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
     "$repo/install.sh" --key-only >"$output" 2>&1; then
     fail "conflicting Image2 TOML assignment $name unexpectedly succeeded"
   fi
@@ -379,11 +434,30 @@ cat >"$sibling_assignment_home/.codex/config.toml" <<'TOML'
 mcp_servers.keep.command = "ok"
 "mcp_servers" . "keep-quoted" . command = "quoted ok"
 TOML
-printf '%s\n' "$secret" | HOME="$sibling_assignment_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$sibling_assignment_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/sibling-assignment.log" 2>&1
 assert_contains "$tmp/sibling-assignment.log" 'Verification: OK'
 assert_line "$sibling_assignment_home/.codex/config.toml" 'mcp_servers.keep.command = "ok"'
 assert_line "$sibling_assignment_home/.codex/config.toml" '"mcp_servers" . "keep-quoted" . command = "quoted ok"'
+
+# Provider credentials configured for other MCP servers and comments must not
+# be mistaken for credentials embedded in the generated image2 table.
+foreign_keys_home="$tmp/foreign-keys-home"
+mkdir -p "$foreign_keys_home/.codex"
+cat >"$foreign_keys_home/.codex/config.toml" <<'TOML'
+# OPENAI_IMAGE_API_KEY is intentionally mentioned in documentation.
+[mcp_servers.other.env]
+OPENAI_IMAGE_API_KEY = "other-provider-image-key"
+GEMINI_IMAGE_API_KEY = "other-provider-gemini-key"
+TOML
+printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$foreign_keys_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/foreign-keys.log" 2>&1 || {
+    cat "$tmp/foreign-keys.log" >&2
+    fail 'unrelated provider key names in Codex config prevented installation'
+  }
+assert_contains "$tmp/foreign-keys.log" 'Verification: OK'
+assert_line "$foreign_keys_home/.codex/config.toml" 'OPENAI_IMAGE_API_KEY = "other-provider-image-key"'
+assert_line "$foreign_keys_home/.codex/config.toml" 'GEMINI_IMAGE_API_KEY = "other-provider-gemini-key"'
 
 rm -f "$repo/.env.local"
 nul_env_before='absent'
@@ -402,13 +476,89 @@ assert_not_contains "$tmp/nul.log" 'nul-suffix'
 [[ "$(cksum "$home/.codex/config.toml")" == "$nul_config_before" ]] || fail 'NUL input changed Codex config'
 
 before='absent'
-if printf '   \n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+if printf '   \n \n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   "$repo/install.sh" --key-only >"$tmp/blank.log" 2>&1; then
   fail 'blank key unexpectedly succeeded'
 fi
 [[ ! -e "$repo/.env.local" ]] || fail 'blank key changed .env.local'
+if printf '\343\200\200\n\302\240\n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  "$repo/install.sh" --key-only >"$tmp/unicode-blank.log" 2>&1; then
+  fail 'Unicode whitespace-only keys unexpectedly succeeded'
+fi
+assert_contains "$tmp/unicode-blank.log" 'at least one Image2 or Gemini API Key is required'
+[[ ! -e "$repo/.env.local" ]] || fail 'Unicode whitespace input changed saved credentials'
 
-if printf '%s\n' "$secret" | HOME="$home" "$repo/install.sh" --key-only --base-url https://example.invalid \
+# Both provider values must pass validation before a fresh environment is saved.
+for invalid_kind in missing-gemini long-gemini nul-gemini; do
+  input="$tmp/$invalid_kind.input"
+  case "$invalid_kind" in
+    missing-gemini) printf 'image-key\n' >"$input" ;;
+    long-gemini) printf 'image-key\n%01025d\n' 0 >"$input" ;;
+    nul-gemini) printf 'image-key\ngemini\0secret\n' >"$input" ;;
+  esac
+  if HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+      "$repo/install.sh" --key-only <"$input" >"$tmp/$invalid_kind.log" 2>&1; then
+    fail "$invalid_kind input unexpectedly succeeded"
+  fi
+  [[ ! -e "$repo/.env.local" ]] || fail "$invalid_kind changed saved credentials"
+done
+
+interactive_repo="$tmp/interactive-repo"
+mkdir -p "$interactive_repo"
+printf 'OPENAI_IMAGE_API_KEY=obsolete-image\nGEMINI_IMAGE_API_KEY=obsolete-gemini\n' >"$interactive_repo/.env"
+(
+  source "$root/scripts/setup.sh"
+  repo_dir="$interactive_repo"
+  OPENAI_IMAGE_API_KEY=ambient-image
+  GEMINI_IMAGE_API_KEY=ambient-gemini
+  write_interactive_env <<< $'\nfresh-image\nfresh-gemini\n'
+  load_legacy_environment
+  [[ "$OPENAI_IMAGE_API_KEY" == fresh-image && "$GEMINI_IMAGE_API_KEY" == fresh-gemini ]] || fail 'interactive fresh credentials were overridden'
+  bash -c '[[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" ]]' || fail 'interactive configuration exported credentials to child processes'
+) >"$tmp/interactive.log" 2>&1 || { cat "$tmp/interactive.log" >&2; fail 'interactive fresh credential configuration failed'; }
+assert_not_contains "$tmp/interactive.log" 'fresh-image'
+assert_not_contains "$tmp/interactive.log" 'fresh-gemini'
+
+cat >"$fakebin/go" <<'GO'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${RUN_IMAGE2_SMOKE:-}" == 1 ]]; then
+  [[ "${OPENAI_IMAGE_API_KEY:-}" == fresh-image && -z "${GEMINI_IMAGE_API_KEY:-}" ]] || exit 94
+  printf 'smoke\n' >>"$IMAGE2_MCP_TEST_GO_LOG"
+else
+  [[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" ]] || exit 93
+  printf '%s\n' "$1" >>"$IMAGE2_MCP_TEST_GO_LOG"
+fi
+GO
+chmod +x "$fakebin/go"
+mkdir -p "$interactive_repo/scripts"
+cp "$root/install.sh" "$interactive_repo/install.sh"
+cp "$root/scripts/setup.sh" "$interactive_repo/scripts/setup.sh"
+advanced_go_log="$tmp/advanced-go.log"
+for advanced_mode in prebuilt source existing-smoke image-only-smoke ambient-source; do
+  advanced_args=(--skip-tests)
+  advanced_gemini_key=ambient-gemini
+  case "$advanced_mode" in
+    prebuilt) advanced_args=(--interactive --prebuilt --skip-tests) ;;
+    source) advanced_args=(--interactive) ;;
+    existing-smoke) advanced_args=(--smoke) ;;
+    image-only-smoke) printf 'OPENAI_IMAGE_API_KEY=fresh-image\n' >"$interactive_repo/.env.local"; advanced_gemini_key=''; advanced_args=(--smoke) ;;
+    ambient-source) rm -f "$interactive_repo/.env.local" "$interactive_repo/.env"; advanced_args=(--base-url https://api.schyler.top) ;;
+  esac
+  printf '\nfresh-image\nfresh-gemini\n' | HOME="$home" PATH="$fakebin:$PATH" \
+      OPENAI_IMAGE_API_KEY=ambient-image GEMINI_IMAGE_API_KEY="$advanced_gemini_key" \
+      IMAGE2_MCP_REPO=Schyler0427/image2-mcp IMAGE2_MCP_TEST_ASSET="$fixture" \
+      IMAGE2_MCP_TEST_GO_LOG="$advanced_go_log" \
+      "$interactive_repo/install.sh" "${advanced_args[@]}" >"$tmp/advanced-$advanced_mode.log" 2>&1 || {
+    cat "$tmp/advanced-$advanced_mode.log" >&2
+    fail "advanced $advanced_mode installer exposed credentials or failed"
+  }
+  assert_not_contains "$tmp/advanced-$advanced_mode.log" 'fresh-image'
+  assert_not_contains "$tmp/advanced-$advanced_mode.log" 'fresh-gemini'
+done
+[[ "$(cat "$advanced_go_log")" == $'test\nbuild\ntest\nbuild\nsmoke\ntest\nbuild\nsmoke\ntest\nbuild' ]] || fail 'advanced build/smoke fixture did not run all intended subprocesses'
+
+if printf '%s\n%s\n' "$secret" "$gemini_secret" | HOME="$home" "$repo/install.sh" --key-only --base-url https://example.invalid \
   >"$tmp/conflict.log" 2>&1; then
   fail 'conflicting key-only flags unexpectedly succeeded'
 fi
