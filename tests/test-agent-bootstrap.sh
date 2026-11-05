@@ -385,7 +385,7 @@ cat >"$offline_payload/dist/image2-mcp" <<'BIN'
 [[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" ]] || exit 93
 case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
 case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
-printf 'image2-mcp 0.4.2 offline-v1 %s %s\n' "$os" "$arch"
+printf 'image2-mcp 0.4.3 offline-v1 %s %s\n' "$os" "$arch"
 BIN
 chmod +x "$offline_payload/dist/image2-mcp"
 rm "$offline_payload/version.txt"
@@ -401,7 +401,7 @@ write_offline_manifest() {
     *) manifest_arch=amd64 ;;
   esac
   {
-    printf 'IMAGE2_MCP_OFFLINE 1\nversion 0.4.2\nplatform %s %s\n' "$manifest_os" "$manifest_arch"
+    printf 'IMAGE2_MCP_OFFLINE 1\nversion 0.4.3\nplatform %s %s\n' "$manifest_os" "$manifest_arch"
     for path in "${offline_paths[@]}"; do
       hash="$(shasum -a 256 "$package/$path" | awk '{print $1}')"
       bytes="$(wc -c < "$package/$path" | tr -d '[:space:]')"

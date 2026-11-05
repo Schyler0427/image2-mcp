@@ -23,6 +23,8 @@ const (
 	DefaultBaseURL        = "https://api.schyler.top"
 	DefaultModel          = "gpt-image-2"
 	Image25Model          = "gpt-image-2.5-sunburst"
+	Image26Model          = "gpt-image-2.6-sunburst"
+	Image26FlareModel     = "gpt-image-2.6-flare"
 	DefaultSize           = "1024x1024"
 	DefaultQuality        = "auto"
 	maxAttempts           = 3
@@ -43,17 +45,24 @@ type Client struct {
 }
 
 type GenerateRequest struct {
-	Prompt     string `json:"prompt"`
-	Version    string `json:"version,omitempty"`
-	Size       string `json:"size,omitempty"`
-	OutputDir  string `json:"output_dir,omitempty"`
-	OutputName string `json:"output_name,omitempty"`
+	Prompt          string `json:"prompt"`
+	Version         string `json:"version,omitempty"`
+	Size            string `json:"size,omitempty"`
+	OutputFormat    string `json:"output_format,omitempty"`
+	Quality         string `json:"quality,omitempty"`
+	FrameCount      int    `json:"frame_count,omitempty"`
+	FrameDurationMS int    `json:"frame_duration_ms,omitempty"`
+	OutputDir       string `json:"output_dir,omitempty"`
+	OutputName      string `json:"output_name,omitempty"`
 }
 
 type GenerateResult struct {
-	FilePath string `json:"file_path"`
-	Model    string `json:"model"`
-	Size     string `json:"size"`
+	FilePath     string `json:"file_path"`
+	Model        string `json:"model"`
+	Size         string `json:"size"`
+	OutputFormat string `json:"output_format,omitempty"`
+	FrameCount   int    `json:"frame_count,omitempty"`
+	DurationMS   *int   `json:"duration_ms,omitempty"`
 }
 
 type EditRequest struct {
@@ -131,8 +140,12 @@ func resolveRequestedModel(version string, configured string) (string, error) {
 		return DefaultModel, nil
 	case "2.5":
 		return Image25Model, nil
+	case "2.6":
+		return Image26Model, nil
+	case "2.6-flare", "2.6快速版":
+		return Image26FlareModel, nil
 	default:
-		return "", errors.New("image version must be 2.0 or 2.5")
+		return "", errors.New("image version must be 2.0, 2.5, or 2.6")
 	}
 }
 
@@ -167,9 +180,42 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 	if prompt == "" {
 		return GenerateResult{}, errors.New("prompt is required")
 	}
+	format := strings.ToLower(strings.TrimSpace(input.OutputFormat))
+	if format != "" && format != "png" && format != "gif" {
+		return GenerateResult{}, errors.New("output_format must be png or gif")
+	}
+	if format == "gif" {
+		if strings.TrimSpace(input.Version) == "" || (model != Image26Model && model != Image26FlareModel) {
+			return GenerateResult{}, errors.New("GIF generation requires an explicit Image2 2.6 version")
+		}
+		if input.FrameCount == 0 {
+			input.FrameCount = 9
+		}
+		if input.FrameDurationMS == 0 {
+			input.FrameDurationMS = 200
+		}
+		if input.FrameCount < 2 || input.FrameCount > 64 {
+			return GenerateResult{}, errors.New("frame_count must be between 2 and 64")
+		}
+		if input.FrameDurationMS < 20 || input.FrameDurationMS > 2000 {
+			return GenerateResult{}, errors.New("frame_duration_ms must be between 20 and 2000")
+		}
+	} else if input.FrameCount != 0 || input.FrameDurationMS != 0 {
+		return GenerateResult{}, errors.New("frame_count and frame_duration_ms require GIF output_format")
+	}
 	size := strings.TrimSpace(input.Size)
 	if size == "" {
-		size = DefaultSize
+		if format == "gif" {
+			size = "auto"
+		} else {
+			size = DefaultSize
+		}
+	}
+	if format == "gif" {
+		size, err = validateGIFSize(size, input.FrameCount)
+		if err != nil {
+			return GenerateResult{}, err
+		}
 	}
 	explicitOutputDir := strings.TrimSpace(input.OutputDir)
 	outputDir := explicitOutputDir
@@ -190,6 +236,16 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 		"size":   size,
 		"n":      1,
 	}
+	if format != "" {
+		payload["output_format"] = format
+	}
+	if quality := strings.TrimSpace(input.Quality); quality != "" {
+		payload["quality"] = quality
+	}
+	if format == "gif" {
+		payload["frame_count"] = input.FrameCount
+		payload["frame_duration_ms"] = input.FrameDurationMS
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return GenerateResult{}, err
@@ -199,7 +255,7 @@ func (c *Client) Generate(ctx context.Context, input GenerateRequest) (GenerateR
 	if err != nil {
 		return GenerateResult{}, err
 	}
-	return c.saveImageResponse(ctx, respBody, headers, status, size, outputDir, input.OutputName, model)
+	return c.saveImageResponse(ctx, respBody, headers, status, size, outputDir, input.OutputName, model, format)
 }
 
 func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error) {
@@ -304,7 +360,7 @@ func (c *Client) Edit(ctx context.Context, input EditRequest) (EditResult, error
 	if err != nil {
 		return EditResult{}, err
 	}
-	return c.saveImageResponse(ctx, respBody, headers, status, size, outputDir, input.OutputName, model)
+	return c.saveImageResponse(ctx, respBody, headers, status, size, outputDir, input.OutputName, model, "")
 }
 
 func (c *Client) doImageRequest(ctx context.Context, method, endpoint string, body []byte, contentType string) ([]byte, http.Header, int, int, error) {

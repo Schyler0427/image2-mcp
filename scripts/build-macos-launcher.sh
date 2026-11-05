@@ -82,7 +82,8 @@ ln -s /Applications "$stage/dmg-root/Applications"
 cat > "$stage/dmg-root/使用说明.txt" <<'NOTES'
 把 SchylerAI-Image2-mcp 拖到 Applications，再打开应用。
 Image2 和 Gemini 专用 Key 至少填写一项，另一项可留空，点击“安装 / 更新密钥”。安装成功后重启 Codex 或开启新会话。
-默认“帮我生图”使用 Image2；“用 2.5 生图”使用 Image2.5；只有明确说 Gemini / 香蕉 / banana 生图才使用 Gemini 3.1 Flash Image。
+普通 PNG 默认“帮我生图”使用 Image2 2.0；“用 2.5 生图”使用 Image2.5；“用2.6生图”使用 Image2.6 Sunburst；“用2.6快速版生图”使用 Image2.6 Flare。只有明确说 Gemini / 香蕉 / banana 生图才使用 Gemini 3.1 Flash Image。
+“生成动图”“做个GIF”“循环动图”自动用 Flare 生成 GIF，除非明确指定模型；指定模型失败时不会自动改换。GIF 只支持文生图，不支持参考图编辑成动图；默认自动尺寸、9 帧、每帧 200 ms。
 每次安装或换钥都重新输入需要启用的密钥；留空的服务保持未配置并清除旧密钥，不读取或复用其他密钥。安装和连接验证不会发起收费生图。
 本地构建未使用 Developer ID 证书、未经过 Apple 公证；macOS 可能阻止首次打开，请按系统安全提示处理。不要关闭 Gatekeeper 或删除隔离属性。
 在线更新功能需要维护者部署签名更新清单；未部署前，当前内置版本仍可离线安装。

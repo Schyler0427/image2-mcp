@@ -28,7 +28,7 @@ function Test-OfflineBinary([string]$Root) {
     if (-not $Process.WaitForExit(5000)) { throw "timeout" }
     $NativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
     $Arch = switch ($NativeArchitecture.ToUpperInvariant()) { "ARM64" { "arm64" }; "AMD64" { "amd64" }; "X86" { "386" }; default { throw "unsupported architecture" } }
-    $Expected = "image2-mcp 0.4.2 offline-v1 windows $Arch"
+    $Expected = "image2-mcp 0.4.3 offline-v1 windows $Arch"
     if ($Process.ExitCode -ne 0 -or -not $OutputTask.Wait(1000) -or
         $OutputTask.Result.TrimEnd([char[]]@("`r", "`n")) -cne $Expected) {
       throw "version or platform mismatch"

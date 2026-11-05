@@ -49,6 +49,8 @@ func TestUnifiedGenerateRoutesAndKeepsKeysSeparate(t *testing.T) {
 		{"香蕉", "/v1beta/models/gemini-3.1-flash-image:generateContent", "gemini-only-test", "gemini-3.1-flash-image"},
 		{"image2", "/v1/images/generations", "image-only-test", "gpt-image-2"},
 		{"image2.5", "/v1/images/generations", "image-only-test", "gpt-image-2.5-sunburst"},
+		{"image2.6", "/v1/images/generations", "image-only-test", "gpt-image-2.6-sunburst"},
+		{"image2.6-flare", "/v1/images/generations", "image-only-test", "gpt-image-2.6-flare"},
 	} {
 		t.Run(tc.actualModel, func(t *testing.T) {
 			calls := 0
@@ -139,7 +141,7 @@ func TestUnifiedEditRoutesAndPreservesReferences(t *testing.T) {
 	if err := png.Encode(&pngData, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
-	for _, model := range []string{"", "gemini", "image2", "image2.5"} {
+	for _, model := range []string{"", "gemini", "image2", "image2.5", "image2.6", "image2.6-flare"} {
 		t.Run(model, func(t *testing.T) {
 			input := t.TempDir()
 			paths := []string{filepath.Join(input, "主体.png"), filepath.Join(input, "风格.png")}
@@ -201,6 +203,10 @@ func TestUnifiedEditRoutesAndPreservesReferences(t *testing.T) {
 					wantModel := "gpt-image-2"
 					if model == "image2.5" {
 						wantModel = "gpt-image-2.5-sunburst"
+					} else if model == "image2.6" {
+						wantModel = "gpt-image-2.6-sunburst"
+					} else if model == "image2.6-flare" {
+						wantModel = "gpt-image-2.6-flare"
 					}
 					if r.FormValue("model") != wantModel || r.FormValue("size") != "1024x1536" || r.FormValue("quality") != "high" {
 						t.Error("Image2 settings not mapped")
@@ -287,7 +293,7 @@ func TestUnifiedInvalidOptionsNeverSendRequest(t *testing.T) {
 func TestUnifiedMissingImage2KeyDoesNotFallback(t *testing.T) {
 	t.Setenv("OPENAI_IMAGE_API_KEY", "")
 	t.Setenv("GEMINI_IMAGE_API_KEY", "other-provider-only")
-	for _, model := range []string{"", "image2", "image2.5"} {
+	for _, model := range []string{"", "image2", "image2.5", "image2.6", "image2.6-flare"} {
 		result, err := unifiedSession(t).CallTool(context.Background(), &mcp.CallToolParams{Name: "generate_image", Arguments: map[string]any{"model": model, "prompt": "test"}})
 		if err != nil || !result.IsError || !strings.Contains(result.Content[0].(*mcp.TextContent).Text, "OPENAI_IMAGE_API_KEY is required") {
 			t.Fatalf("expected independent Image2 key error: %+v %v", result, err)

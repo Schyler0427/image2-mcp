@@ -76,13 +76,13 @@ for required in \
   }
 done
 for scope_doc in "$readme" "$doc"; do
-  grep -Fq '0.4.2 本地 GUI／离线包支持只配置一把密钥；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空。' "$scope_doc" || {
+  grep -Fq '0.4.3 本地 GUI／离线包支持只配置一把密钥，并提供 Image2.6 与动态 GIF 生图；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空，也没有本地 0.4.3 的新功能。' "$scope_doc" || {
     echo "FAIL: $scope_doc does not distinguish current offline keys from the published online gate" >&2
     exit 1
   }
   for required in \
     '这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。' \
-    '只配置一把密钥时，请使用 0.4.2 GUI 或离线包。'; do
+    '只配置一把密钥或使用 Image2.6／GIF 时，请使用 0.4.3 本地 GUI 或离线包。'; do
     grep -Fq "$required" "$scope_doc" || {
       echo "FAIL: $scope_doc does not explain source-checkout Key-only limitations: $required" >&2
       exit 1
@@ -111,10 +111,24 @@ if grep -Eiq '((please|让客户|请客户|要求客户).*(provide|enter|填写|
   echo 'FAIL: customer docs request model ID, Base URL, or endpoint' >&2
   exit 1
 fi
-if grep -Eiq 'gpt-image-2\.[05](-sunburst|-flare)?' "$readme" "$doc"; then
+if grep -Eiq 'gpt-image-2\.[056](-sunburst|-flare)?' "$readme" "$doc" "$root/OFFLINE_INSTALL.md" "$root/macos/README.md" "$root/docs/launcher-release.md"; then
   echo 'FAIL: customer docs expose provider model IDs' >&2
   exit 1
 fi
+for customer_doc in README.md AGENT_INSTALL.md OFFLINE_INSTALL.md macos/README.md docs/launcher-release.md; do
+  for required in '0.4.3' '用2.6生图' '用2.6快速版生图' '生成动图' '做个GIF' '循环动图' 'v0.4.0'; do
+    grep -Fq "$required" "$root/$customer_doc" || {
+      echo "FAIL: $customer_doc missing local Image2.6/GIF or pinned online scope: $required" >&2
+      exit 1
+    }
+  done
+done
+for required in 'output_format=gif' 'frame_count' 'frame_duration_ms' 'duration_ms' '参考图'; do
+  grep -Fq "$required" "$readme" || {
+    echo "FAIL: README missing GIF request/result contract: $required" >&2
+    exit 1
+  }
+done
 for required in \
   'https://github.com/Schyler0427/image2-mcp' \
   'Schyler0427/image2-mcp' \

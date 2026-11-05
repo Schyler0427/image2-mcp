@@ -7,7 +7,7 @@ Approved scope: the user chose to retain the original Image2 default, then appro
 - Ordinary image generation and editing continue to use Image2 2.0. Explicit Image2.5 and Gemini / banana / 香蕉 routing stays unchanged.
 - Explicit `image2.6` / `2.6` selects Sunburst (`gpt-image-2.6-sunburst`). Explicit `image2.6-flare` / `2.6快速版` selects Flare (`gpt-image-2.6-flare`). Both support PNG generation and editing through the existing Image2 credential and gateway.
 - Do not switch model or provider after an error. Sunburst returned HTTP 503 during the live test; Flare returned a verified nine-frame, 1.8-second GIF. Advertising a model does not establish account availability.
-- GIF generation requires an explicitly selected Image2.6 variant. A GIF request does not silently upgrade the ordinary Image2 default. Gemini and edit tools reject GIF output.
+- User clarification: natural-language “生成动图”, “GIF”, and “循环动图” automatically select GIF generation with Image2.6 Flare when no model was specified. Runtime GIF generation with a blank model/version also selects Flare; an explicitly selected model is never changed. Ordinary PNG requests retain Image2 2.0. Gemini and edit tools reject GIF output.
 
 ## Request and output contract
 

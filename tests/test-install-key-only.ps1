@@ -98,7 +98,7 @@ using System.Threading;
 public static class Program {
   public static int Main(string[] args) {
     if (args.Length == 1 && args[0] == "--version") {
-      Console.WriteLine("image2-mcp 0.4.2 offline-v1 windows __ARCH__");
+      Console.WriteLine("image2-mcp 0.4.3 offline-v1 windows __ARCH__");
       return 0;
     }
     bool baseUrlMatches = String.Equals(

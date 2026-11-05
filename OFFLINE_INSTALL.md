@@ -38,4 +38,6 @@ runner，并检查实际 MCP 握手、版本和四个图像工具。成功必须
 离线仅指安装过程；实际生成或编辑图片仍需能访问现有图片网关。
 当前尚未部署自有在线下载服务，由维护者通过客户可访问的渠道交付完整包。
 
-安装后默认使用 Image2。说“使用 image2 生成”选择 Image2，说“用 2.5 生图”选择 Image2.5；只有明确说“使用 Gemini 生图”“香蕉生图”或“banana 生图”时才选择 Gemini 3.1 Flash Image。参考图编辑同样按自然语言选择。所选服务未配置时会报错，不会自动切换服务；仅配置 Gemini 也不会改变默认模型。新工具为 `generate_image` 和 `edit_image`，旧 Image2 工具继续保留。
+本地 0.4.3 离线包安装后，普通 PNG 默认使用 Image2 2.0。说“使用 image2 生成”选择 Image2 2.0，说“用 2.5 生图”选择 Image2.5，说“用2.6生图”选择 Image2.6 Sunburst，说“用2.6快速版生图”选择 Image2.6 Flare；只有明确说“使用 Gemini 生图”“香蕉生图”或“banana 生图”时才选择 Gemini 3.1 Flash Image。说“生成动图”“做个GIF”“循环动图”时自动设置 `output_format=gif` 并选择 Flare，除非已明确指定模型；指定的模型不因不支持或出错而改换。GIF 仅支持 Image2.6 文生图，不支持参考图编辑成动图，也不会丢弃参考图。GIF 默认自动尺寸、9 帧、每帧 200 ms；可选 `frame_count` 为 2–64、`frame_duration_ms` 为 20–2000（服务按 10 ms 取整），明确宽高须为正数且均为 16 的倍数。Image2 生成可选 `quality`。GIF 文件保留原始动画，返回实际尺寸、帧数和总时长。参考图静态编辑同样按自然语言选择。所选服务未配置时会报错，不会自动切换服务；仅配置 Gemini 也不会改变普通 PNG 的默认模型。新工具为 `generate_image` 和 `edit_image`，旧 Image2 工具继续保留。
+
+固定在线 Key-only 安装目前下载已发布的 `v0.4.0`，不包含本地 0.4.3 的 Image2.6／GIF 功能；使用这些功能需安装维护者提供的 0.4.3 本地 GUI 或完整离线包。

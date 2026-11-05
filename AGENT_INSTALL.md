@@ -1,6 +1,6 @@
 # Image2 MCP Agent Installation
 
-0.4.2 本地 GUI／离线包支持只配置一把密钥；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空。这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。只配置一把密钥时，请使用 0.4.2 GUI 或离线包。维护者发布并更新在线版本前，请按所用路径的要求输入。
+0.4.3 本地 GUI／离线包支持只配置一把密钥，并提供 Image2.6 与动态 GIF 生图；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空，也没有本地 0.4.3 的新功能。这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。只配置一把密钥或使用 Image2.6／GIF 时，请使用 0.4.3 本地 GUI 或离线包。维护者发布并更新在线版本前，请按所用路径的要求输入。
 
 ## Offline package path
 
@@ -17,6 +17,12 @@ same stdin-only Key rules and completion requirements below. Verification is
 local and must never call an image API. The ordinary binary-only Release assets
 are not complete offline packages. The self-hosted download source is not deployed.
 
+## Local 0.4.3 image routing
+
+普通 PNG 仍默认 Image2（Image 2.0）。“用2.6生图”选择 `model: "image2.6"`（Sunburst）；“用2.6快速版生图”选择 `model: "image2.6-flare"`（Flare）。本地 0.4.3 中，“生成动图”“做个GIF”“循环动图”会由 Agent 调用 `generate_image`，设置 `output_format: "gif"`；未明确指定模型时自动选择 Flare。“用2.6快速版生成一个挥手的 GIF”同时指定 Flare 和 GIF。明确指定的模型不能因 GIF 不受支持或上游错误而更改，也不能自动换服务。
+
+GIF 只支持 Image2.6 文生图；参考图编辑、蒙版编辑和 Gemini 不支持 GIF。遇到参考图动画请求，应说明当前不支持，不可丢弃参考图改用文生图。GIF 默认 `size: "auto"`、`frame_count: 9`、`frame_duration_ms: 200`；帧数范围 2–64，每帧时长范围 20–2000 ms（服务按 10 ms 取整），明确宽高须为正数且均为 16 的倍数。PNG 不带动画参数；Image2 生成可选 `quality`。GIF 结果使用 `.gif`，保留原始字节并返回实际尺寸、帧数和总时长；响应上限为 64 MiB、累计逻辑画布像素上限为 3200 万，损坏或单帧 GIF 会被拒绝。该行为只适用于本地 0.4.3 构建，不适用于下述固定在线 `v0.4.0` 安装。
+
 ## Online GitHub path
 
 Follow this procedure to completion. Do not request any customer value except
@@ -30,7 +36,7 @@ probe alternate GitHub pages or mirrors, reinstall dependencies, change the
 network configuration, or launch a second installer automatically. Continue
 only after the customer asks to retry or the reported cause has been resolved.
 
-## Fixed contract
+## Fixed online v0.4.0 contract
 
 - Repository: `https://github.com/Schyler0427/image2-mcp`
 - Repository identity: `Schyler0427/image2-mcp`
@@ -41,13 +47,13 @@ only after the customer asks to retry or the reported cause has been resolved.
 - macOS/Linux target: `$HOME/.local/share/image2-mcp`
 - Windows target: `%LOCALAPPDATA%\image2-mcp`
 - Managed marker: `.image2-mcp-managed`
-- Default model: Image2（Image 2.0）。“帮我生成一张图”会由 Agent 调用 `generate_image`，省略 model 或传 `image2`。
+- Default model in the pinned online binary: Image2（Image 2.0）。“帮我生成一张图”会由 Agent 调用 `generate_image`，省略 model 或传 `image2`。
   “使用 image2 生成”选择 `model: "image2"`（Image 2.0）；“用 2.5 生图”选择 `model: "image2.5"`（Image 2.5）。
   只有明确说“使用 Gemini 生图”“香蕉生图”或“banana 生图”时才选择 `model: "gemini"`（Gemini 3.1 Flash Image）。参考图编辑使用 `edit_image` 和同样的 model。
 - Legacy `generate_image2` and `edit_image2` stay Image2-only; Image 2.5 uses
   `version: "2.5"`. Do not switch providers after an error or repeat image calls
   automatically. A missing selected provider key is an error.
-- 0.4.2 本地 GUI／离线包：客户只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把。All online Key-only paths, including direct commands from a source checkout, still download the pinned older binary and require nonempty keys for both providers. The fixed gateway is
+- 0.4.3 本地 GUI／离线包：客户只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把。All online Key-only paths, including direct commands from a source checkout, still download the pinned older binary and require nonempty keys for both providers. The fixed gateway is
   `https://api.schyler.top`; model selection follows natural language.
 - 永远不要询问客户模型 ID、Base URL 或 endpoint。
 
@@ -71,12 +77,12 @@ user with its real standard input, output, and error streams attached. Do not
 request elevation or start an administrator process.
 If the helper prints `OPENAI_IMAGE_API_KEY:`, ask exactly `请输入 Image2 专用 API Key：`.
 When it prints `GEMINI_IMAGE_API_KEY:`, ask exactly `请输入 Gemini 专用 API Key：`.
-For a 0.4.2 offline package, before the first prompt explain in Chinese that at least one provider key is required, either field may be left blank, and both may be configured.
+For a 0.4.3 offline package, before the first prompt explain in Chinese that at least one provider key is required, either field may be left blank, and both may be configured.
 For the pinned online path, explain in Chinese that the published older installer requires a nonempty key for each provider; any blank or whitespace-only key fails once with no re-prompt. Do not promise optional-key validation for source downloaded from the immutable older tag.
 Wait for each one-line response and keep it only as the pending stdin secret.
 Every installation or upgrade requires fresh input for the providers the customer
 wants to configure; never reuse an old installation key or an inherited environment key.
-In a 0.4.2 offline package, a blank or whitespace-only input leaves that provider unconfigured and clears its
+In a 0.4.3 offline package, a blank or whitespace-only input leaves that provider unconfigured and clears its
 previous key; it must not fall back to an inherited environment key.
 If both inputs are blank or whitespace-only, fail once with no re-prompt.
 Each nonempty value must be single-line and at most 1024 UTF-8 bytes.
@@ -87,7 +93,7 @@ Keep this download, helper launch, key forwarding, installation, and verificatio
 When the attached child prints each named key prompt, send only that provider's
 pending secret as one line through that same process's standard input facility.
 Send exactly two lines in Image2-then-Gemini order, responding to the prompts. Only
-for a 0.4.2 offline package, send an empty line for an unconfigured provider.
+for a 0.4.3 offline package, send an empty line for an unconfigured provider.
 Do not inspect `.env.local`, the target, or Codex config while the helper is still running.
 Do not restart the helper because an expected file is not present during the
 transaction. Only the helper's exit status and final output determine success.

@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-func (c *Client) saveImageResponse(ctx context.Context, body []byte, headers http.Header, status int, size, dir, name, model string) (GenerateResult, error) {
+func (c *Client) saveImageResponse(ctx context.Context, body []byte, headers http.Header, status int, size, dir, name, model, outputFormat string) (GenerateResult, error) {
 	var parsed struct {
 		Data []struct {
 			B64JSON string `json:"b64_json"`
@@ -44,7 +44,7 @@ func (c *Client) saveImageResponse(ctx context.Context, body []byte, headers htt
 			return fail("decode data[0].b64_json: invalid base64 image")
 		}
 	} else if link := strings.TrimSpace(first.URL); link != "" {
-		data, err = c.downloadImage(ctx, link)
+		data, err = c.downloadImageForFormat(ctx, link, outputFormat == "gif")
 		if err != nil {
 			return fail(err.Error())
 		}
@@ -54,6 +54,13 @@ func (c *Client) saveImageResponse(ctx context.Context, body []byte, headers htt
 	if len(data) == 0 {
 		return fail("image response contains empty image")
 	}
+	if outputFormat == "gif" {
+		result, err := saveGIF(data, dir, name, model)
+		if err != nil {
+			return fail(err.Error())
+		}
+		return result, nil
+	}
 	return savePNG(data, size, dir, name, model)
 }
 
@@ -62,6 +69,10 @@ func validImageURL(u *url.URL) bool {
 }
 
 func (c *Client) downloadImage(ctx context.Context, link string) ([]byte, error) {
+	return c.downloadImageForFormat(ctx, link, false)
+}
+
+func (c *Client) downloadImageForFormat(ctx context.Context, link string, rawGIF bool) ([]byte, error) {
 	u, err := url.Parse(link)
 	if err != nil || !validImageURL(u) {
 		return nil, errors.New("image URL must be an absolute HTTP(S) URL without credentials")
@@ -108,6 +119,9 @@ func (c *Client) downloadImage(ctx context.Context, link string) ([]byte, error)
 	}
 	if len(data) == 0 {
 		return nil, errors.New("download returned empty image")
+	}
+	if rawGIF {
+		return data, nil
 	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {

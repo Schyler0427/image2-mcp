@@ -404,7 +404,7 @@ function Assert-AgentBootstrapOfflinePackage([string]$Package) {
     default { throw "unsupported offline package architecture" }
   }
   if ($Lines.Count -ne 15 -or $Lines[0] -cne "IMAGE2_MCP_OFFLINE 1" -or
-      $Lines[1] -cne "version 0.4.2" -or $Lines[2] -cne "platform windows $Arch") {
+      $Lines[1] -cne "version 0.4.3" -or $Lines[2] -cne "platform windows $Arch") {
     throw "offline package version, platform, or manifest format mismatch"
   }
   [long]$Total = 0

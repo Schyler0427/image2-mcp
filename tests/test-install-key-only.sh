@@ -45,7 +45,7 @@ if [[ "${1:-}" == --version ]]; then
   [[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_BASE_URL:-}" && -z "${GEMINI_IMAGE_MODEL:-}" ]] || exit 93
   case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; esac
   case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
-  echo "image2-mcp 0.4.2 offline-v1 $os $arch"
+  echo "image2-mcp 0.4.3 offline-v1 $os $arch"
   exit 0
 fi
 if [[ "${1:-}" == --verify-mcp && "${IMAGE2_MCP_TEST_VERIFY_MODE:-}" != missing-marker ]]; then

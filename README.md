@@ -2,16 +2,16 @@
 
 SchylerAI-Image2-mcp 是一个给 Codex 使用的本地 STDIO MCP 服务，支持 Image2 和 Gemini 独立密钥，至少配置一把即可，也可同时配置两把。默认使用 **Image2（Image 2.0）**；明确说 Gemini、香蕉或 banana 生图时才使用 Gemini 3.1 Flash Image。它提供四个工具：
 
-- `generate_image`：统一文生图，`model=image2`（默认）、`image2.5` 或 `gemini`（也接受 `banana` / `香蕉`）
+- `generate_image`：统一文生图，`model=image2`（普通 PNG 默认）、`image2.5`、`image2.6`、`image2.6-flare` 或 `gemini`（也接受 `banana` / `香蕉`）；支持 Image2.6 动态 GIF 生成
 - `edit_image`：统一参考图编辑，支持同样的模型选择
-- `generate_image2`：调用固定网关的 Image 2.0 / Image 2.5 生图接口
-- `edit_image2`：图生图编辑（支持 Image 2.0 / Image 2.5、多图输入和可选蒙版）
+- `generate_image2`：调用固定网关的 Image 2.0 / Image 2.5 / Image 2.6 生图接口
+- `edit_image2`：图生图编辑（支持 Image 2.0 / Image 2.5 / Image 2.6、多图输入和可选蒙版）
 
-后两个工具保留旧版 Image2 调用行为。新调用使用统一工具，用户直接说模型名称即可。Gemini 原生接口使用自己的专用密钥，读取 `candidates[].content.parts[]` 的图片数据；支持文字在图片前、camelCase/snake_case 字段，并将有效 PNG/JPEG/WebP 图片保存为 PNG。
+后两个工具保留旧版 Image2 调用行为。以下 Image2.6 与 GIF 说明适用于本地 0.4.3 构建，固定在线 `v0.4.0` 安装尚不包含这些功能。新调用使用统一工具，用户直接说模型名称即可。Gemini 原生接口使用自己的专用密钥，读取 `candidates[].content.parts[]` 的图片数据；支持文字在图片前、camelCase/snake_case 字段，并将有效 PNG/JPEG/WebP 图片保存为 PNG。
 
 Image2 支持接口返回的 `data[0].b64_json` 和 `data[0].url`，优先使用 Base64，
-否则下载图片并保存到本地。链接返回的 JPEG / GIF 会转为 PNG；下载不会携带
-生图 API Key，最多读取 64 MiB，解码限制为 3200 万像素。
+否则下载图片并保存到本地。普通 PNG 请求中链接返回的 JPEG / GIF 会转为 PNG；明确请求动态 GIF 时，
+Base64 或链接返回的 GIF 会原样保存为 `.gif`，不丢失动画帧。下载不会携带生图 API Key；响应上限为 64 MiB，动态 GIF 最多 64 帧、累计逻辑画布像素不超过 3200 万。
 
 如果响应缺少图片、无法解析或下载失败，工具会在图片输出目录保存
 `image2-response-*.json`，并在错误里给出路径。诊断保留已知协议字段的结构、
@@ -60,7 +60,7 @@ Windows 使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\instal
 不下载依赖，也不调用生图 API；升级会重新询问本次要配置的专用 Key，至少配置一把，并保留旧版备份。
 完整离线包需要本分支构建；尚未发布，自有下载服务也尚未部署。
 
-0.4.2 本地 GUI／离线包支持只配置一把密钥；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空。这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。只配置一把密钥时，请使用 0.4.2 GUI 或离线包。维护者发布并更新在线版本前，请按所用路径的要求输入。
+0.4.3 本地 GUI／离线包支持只配置一把密钥，并提供 Image2.6 与动态 GIF 生图；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空，也没有本地 0.4.3 的新功能。这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。只配置一把密钥或使用 Image2.6／GIF 时，请使用 0.4.3 本地 GUI 或离线包。维护者发布并更新在线版本前，请按所用路径的要求输入。
 
 能够访问 GitHub 且已准备好 Image2 和 Gemini 密钥时，也可使用原有在线安装指令：
 
@@ -68,12 +68,12 @@ Windows 使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\instal
 请安装并配置 Image2 MCP：读取并严格执行 https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/AGENT_INSTALL.md，按当前固定在线版本的要求输入 Image2 和 Gemini 专用 API Key，除密钥外不要向我询问其他配置，完成安装和验证后再结束。
 ```
 
-对于 0.4.2 本地 GUI／离线包，客户只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把；每次安装或升级都会分别询问。留空表示该服务未配置，并清除该服务原有配置；不会复用其他服务、环境变量或旧安装的 Key。两个输入均为空或仅含空白时，安装会直接失败，不会反复询问。
+对于 0.4.3 本地 GUI／离线包，客户只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把；每次安装或升级都会分别询问。留空表示该服务未配置，并清除该服务原有配置；不会复用其他服务、环境变量或旧安装的 Key。两个输入均为空或仅含空白时，安装会直接失败，不会反复询问。
 安装失败时会报告失败阶段，不会自动反复安装或切换下载地址。Release 检查只请求一次 API。
 安装成功必须通过本地 MCP 握手、版本和四个工具的检查，验证过程不会调用生图接口。
 
 默认使用 Image2。Agent 会根据自然语言自动调用
-`generate_image` 或 `edit_image`；客户不需要填写模型 ID、Base URL 或 endpoint。说“使用 image2 生成”选择 Image 2.0，说“用 2.5 生图”选择 Image 2.5，说“使用 Gemini 生图”“香蕉生图”或“banana 生图”选择 Gemini 3.1 Flash Image。
+`generate_image` 或 `edit_image`；客户不需要填写模型 ID、Base URL 或 endpoint。说“使用 image2 生成”选择 Image 2.0，说“用 2.5 生图”选择 Image 2.5，说“用2.6生图”选择 Image2.6 Sunburst，说“用2.6快速版生图”选择 Image2.6 Flare，说“使用 Gemini 生图”“香蕉生图”或“banana 生图”选择 Gemini 3.1 Flash Image。0.4.3 本地版本中，“生成动图”“做个GIF”“循环动图”会自动选择 Flare 生成 GIF，除非明确指定模型；已指定的模型不因不支持 GIF 或上游报错而改换。
 
 ## 维护者和高级安装
 
@@ -96,7 +96,7 @@ Key-only 安装无需配置或修改 Base URL；程序默认使用上述网关�
 ### 前置条件
 
 - 已安装 Codex
-- 当前在线 Key-only 安装需同时准备独立可用的 `OPENAI_IMAGE_API_KEY` 和 `GEMINI_IMAGE_API_KEY`；0.4.2 GUI／离线包至少配置一把即可
+- 当前在线 Key-only 安装需同时准备独立可用的 `OPENAI_IMAGE_API_KEY` 和 `GEMINI_IMAGE_API_KEY`；0.4.3 GUI／离线包至少配置一把即可
 - 推荐仓库已经发布 GitHub Release；这样使用者不需要安装 Go
 - 如果仓库还没有 Release，则需要本机安装 Go，让脚本从源码编译
 
@@ -109,7 +109,7 @@ Key-only 安装无需配置或修改 Base URL；程序默认使用上述网关�
 
 ### 从 GitHub 拉取后安装
 
-以下命令使用在线 Key-only 安装，即使从 0.4.2 源码目录运行，也会下载固定的 `v0.4.0` 二进制。该旧版的 MCP 验证要求 Image2 和 Gemini 密钥均非空，留空任意一项不能完成安装。只配置一把密钥时，请使用 0.4.2 GUI 或离线包。输入的密钥保存到本地 `.env.local`，不会写入 Codex 配置，也不会提交到 GitHub。
+以下命令使用在线 Key-only 安装，即使从 0.4.3 源码目录运行，也会下载固定的 `v0.4.0` 二进制。该旧版的 MCP 验证要求 Image2 和 Gemini 密钥均非空，留空任意一项不能完成安装。只配置一把密钥或使用 Image2.6／GIF 时，请使用 0.4.3 本地 GUI 或离线包。输入的密钥保存到本地 `.env.local`，不会写入 Codex 配置，也不会提交到 GitHub。
 
 ### macOS / Linux
 
@@ -189,9 +189,9 @@ GEMINI_IMAGE_BASE_URL="https://api.schyler.top"
 GEMINI_IMAGE_MODEL="gemini-3.1-flash-image"
 ```
 
-本次输入的 API Key 会分别保存在本地 `.env.local`，不在文档示例中展示。0.4.2 程序支持将未配置的服务保存为空值，清除该服务原有配置，runner 不会改用环境变量里的 Key；在线 Key-only 下载的旧版二进制仍要求两项密钥均非空才能通过验证。`GEMINI_IMAGE_MODEL` 是维护者高级配置，客户不需要填写。
+本次输入的 API Key 会分别保存在本地 `.env.local`，不在文档示例中展示。0.4.3 程序支持将未配置的服务保存为空值，清除该服务原有配置，runner 不会改用环境变量里的 Key；在线 Key-only 下载的旧版二进制仍要求两项密钥均非空才能通过验证。`GEMINI_IMAGE_MODEL` 是维护者高级配置，客户不需要填写。
 
-Agent 根据自然语言选择工具参数：未提模型使用 Image2，说“使用 image2 生成”选择 Image 2.0，说“用 2.5 生图”选择 Image 2.5。只有明确说 Gemini、香蕉或 banana 生图才选择 Gemini 3.1 Flash Image。所选服务未配置时会报错，不会自动切换服务；仅配置 Gemini 也不会改变默认模型。客户不填写模型 ID。
+Agent 根据自然语言选择工具参数：普通 PNG 未提模型使用 Image2 2.0，说“使用 image2 生成”选择 Image 2.0，说“用 2.5 生图”选择 Image 2.5，说“用2.6生图”选择 Image2.6 Sunburst，说“用2.6快速版生图”选择 Image2.6 Flare。0.4.3 本地版本中，“生成动图”“做个GIF”“循环动图”自动使用 GIF 与 Flare，除非明确指定模型。只有明确说 Gemini、香蕉或 banana 生图才选择 Gemini 3.1 Flash Image。所选服务未配置时会报错，不会自动切换服务；仅配置 Gemini 也不会改变默认模型。客户不填写模型 ID。
 
 Codex 配置里不会直接保存 key。启动 MCP 时，runner 脚本会读取本地
 `.env.local`。
@@ -241,9 +241,13 @@ tool_timeout_sec = 600
 - “用 Gemini 生图，画一只戴帽子的猫”“香蕉生图”或“banana 生图”使用 Gemini 3.1 Flash Image
 - “使用 image2 生成一张海边日落”使用 Image 2.0，传入 `model=image2`
 - “用 2.5 生图，画一只戴帽子的猫”使用 Image 2.5，传入 `model=image2.5`
+- “用2.6生图，画一只戴帽子的猫”使用 Image2.6 Sunburst，传入 `model=image2.6`
+- “用2.6快速版生图，画一只戴帽子的猫”使用 Image2.6 Flare，传入 `model=image2.6-flare`
+- “生成动图：挥手的小猫”“做个GIF”或“循环动图”自动传入 `output_format=gif` 并选择 Flare，除非明确指定模型
+- “用2.6快速版生成一个挥手的 GIF”明确选择 Flare 与 GIF
 - “参考这两张图改成水彩风”默认用 Image2 的参考图编辑，保留图片顺序；明确说 Gemini / 香蕉 / banana 时使用 Gemini
 
-Gemini 支持 `aspect_ratio`（默认 `1:1`）和 `image_size`（`1K`、`2K`、`4K`）。Image2 使用 `size`；蒙版与 `quality` 仅用于 Image2 的编辑请求。混用参数会在发请求前报错，工具不会忽略蒙版，也不会自动切换模型或借用另一把 Key。
+Gemini 支持 `aspect_ratio`（默认 `1:1`）和 `image_size`（`1K`、`2K`、`4K`）。Image2 使用 `size`；`quality` 可用于 Image2 生成与编辑，蒙版只用于 Image2 编辑。GIF 仅支持 Image2.6 生图，不能把参考图或编辑请求变成动图；提供参考图时不会丢弃它们改走文生图。GIF 默认 `size=auto`、9 帧、每帧 200 ms；`frame_count` 为 2–64，`frame_duration_ms` 为 20–2000（服务按 10 ms 取整），明确尺寸须为正数且宽高均为 16 的倍数。PNG 不能带动画参数。返回的 GIF 保留原始字节，结果报告实际宽高、帧数和总时长。混用参数会在发请求前报错，工具不会忽略蒙版，也不会自动切换模型或借用另一把 Key。
 
 客户永远不需要提供模型 ID、Base URL 或 endpoint。除非维护者明确覆盖默认配置，
 固定网关始终是 `https://api.schyler.top`。
@@ -298,8 +302,8 @@ windows/amd64
 发布方式：
 
 ```bash
-git tag v0.4.2
-git push origin v0.4.2
+git tag v0.4.3
+git push origin v0.4.3
 ```
 
 Release 产物命名：
@@ -323,7 +327,7 @@ image2-mcp_windows_amd64.zip
 
 ```bash
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o dist/image2-mcp ./cmd/image2-mcp
-bash scripts/build-offline-package.sh --os darwin --arch arm64 --binary dist/image2-mcp --version 0.4.2 --output dist/offline
+bash scripts/build-offline-package.sh --os darwin --arch arm64 --binary dist/image2-mcp --version 0.4.3 --output dist/offline
 ```
 
 ### 真实生图测试
@@ -391,6 +395,21 @@ output/imagegen/mcp-edit-multi-smoke-test.png
 
 统一参考图编辑工具 `edit_image` 额外接收有序的 `image_paths` 数组。Gemini 调用将 `model` 改为 `gemini`，使用 `aspect_ratio` 和 `image_size` 替代 `size`。以下旧工具示例继续保留用于兼容已有调用。
 
+本地 0.4.3 的动态 GIF 示例（`generate_image`；未指定模型时也会自动选择 Flare）：
+
+```json
+{
+  "prompt": "一只挥手的小猫，做成循环动图",
+  "model": "image2.6-flare",
+  "output_format": "gif",
+  "frame_count": 9,
+  "frame_duration_ms": 200,
+  "output_name": "waving-cat.gif"
+}
+```
+
+`output_format` 可选 `png`（默认）或 `gif`；`quality` 是 Image2 生成的可选参数。GIF 省略 `size` 时使用 `auto`，省略帧数或每帧时长时使用 9 帧和 200 ms。返回 `file_path`、实际 `size`、`output_format=gif`、实际 `frame_count` 与总 `duration_ms`；文件扩展名为 `.gif`。只支持文生图生成动画，不支持用参考图编辑或生成动画，也不支持 SVG 或复杂度／标记编辑。
+
 ### 文生图
 
 MCP 工具名：
@@ -414,10 +433,14 @@ generate_image2
 
 ```text
 prompt       必填，生图提示词
-version      可选；省略使用默认版本，使用 Image 2.5 时传字符串 "2.5"
-size         可选，默认 1024x1024
+version      可选；省略时普通 PNG 使用维护者默认版本（通常为 Image 2.0），GIF 使用 Image2.6 Flare；Image 2.5 传 "2.5"，Image2.6 Sunburst 传 "2.6"，Flare 传 "2.6-flare"
+size         可选；PNG 默认 1024x1024，GIF 默认 auto，明确 GIF 尺寸的宽高须为正数且均为 16 的倍数
+output_format 可选，png（默认）或 gif；GIF 只支持 Image2.6 生图
+quality      可选，Image2 生图质量
+frame_count  GIF 可选，2–64 帧，默认 9；PNG 不可传
+frame_duration_ms GIF 可选，每帧 20–2000 ms，默认 200 ms，服务按 10 ms 取整；PNG 不可传
 output_dir   可选，图片保存目录；如果传入，必须是绝对路径
-output_name  可选，图片文件名；不传则自动生成 image2-时间戳.png
+output_name  可选，图片文件名；不传则按格式自动生成 image2-时间戳.png 或 .gif
 ```
 
 `output_dir` 规则：
@@ -488,7 +511,7 @@ Content-Type: multipart/form-data
 
 ```text
 prompt       必填，编辑提示词
-version      可选；省略使用默认版本，使用 Image 2.5 时传字符串 "2.5"
+version      可选；省略使用默认版本，Image 2.5 传 "2.5"，Image2.6 Sunburst 传 "2.6"，Flare 传 "2.6-flare"；编辑仅输出 PNG
 image_paths  必填，源图片绝对路径列表，至少一个
 size         可选，默认 1024x1024
 quality      可选，默认 auto
@@ -584,7 +607,7 @@ Windows PowerShell：
 ### 生图失败怎么办？
 
 MCP 连接正常并不代表客户的 Key 已获得对应模型权限。统一工具使用 2.5 时传入
-`model: "image2.5"`；旧工具使用 `version: "2.5"`。网关权限或模型不可用需要按接口错误排查，工具不会自动降级或切换服务。
+`model: "image2.5"`；旧工具使用 `version: "2.5"`。Image2.6 Sunburst／Flare 也需要对应账号和网关权限；模型被列为可选项不代表请求一定可用。网关权限或模型不可用需要按接口错误排查，工具不会自动降级或切换服务。
 Gemini 请求最多等待 300 秒且不自动重试；Image2 的 429 和临时 5xx 最多尝试 3 次，其他 HTTP 错误不重试，单次最多等待 180 秒。
 Codex 工具超时设为 600 秒；失败后不应由 Agent 再发起重复生图。Gemini 无图片或异常响应会保存不含字符串内容的结构诊断；不保存提示词、密钥或图片编码。
 

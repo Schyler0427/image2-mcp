@@ -364,7 +364,7 @@ validate_offline_manifest() {
   [[ "$(wc -c < "$manifest")" -le 16384 ]] || fail 'offline package manifest is too large'
   {
     IFS= read -r line && [[ "$line" == 'IMAGE2_MCP_OFFLINE 1' ]] || fail 'unsupported offline package manifest'
-    IFS= read -r line && [[ "$line" == 'version 0.4.2' ]] || fail 'offline package version mismatch'
+    IFS= read -r line && [[ "$line" == 'version 0.4.3' ]] || fail 'offline package version mismatch'
     IFS= read -r line && [[ "$line" == "platform $(platform_name) $(arch_name)" ]] || fail 'offline package platform mismatch'
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ "$index" -lt "${#expected[@]}" ]] || fail 'offline package has extra manifest records'

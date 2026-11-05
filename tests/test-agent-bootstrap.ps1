@@ -8,7 +8,7 @@ function Assert-Contains([string]$Path, [string]$Expected, [string]$Message) {
   Assert-True ([IO.File]::ReadAllText($Path).Contains($Expected)) $Message
 }
 
-function New-TestOfflineBinary([string]$Path, [string]$Version = "0.4.2") {
+function New-TestOfflineBinary([string]$Path, [string]$Version = "0.4.3") {
   $NativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
   $Arch = switch ($NativeArchitecture.ToUpperInvariant()) { "ARM64" { "arm64" }; "AMD64" { "amd64" }; "X86" { "386" }; default { throw "unsupported fixture architecture" } }
   $TypeName = "OfflineBinaryFixture" + [Guid]::NewGuid().ToString("N")
@@ -493,7 +493,7 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   }
   function Write-TestOfflineManifest([string]$Package) {
     $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
-    $Lines = @("IMAGE2_MCP_OFFLINE 1", "version 0.4.2", "platform windows $Arch")
+    $Lines = @("IMAGE2_MCP_OFFLINE 1", "version 0.4.3", "platform windows $Arch")
     foreach ($Relative in $OfflinePaths) {
       $File = Get-Item -LiteralPath (Join-Path $Package $Relative)
       $Hash = (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -532,7 +532,7 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
     switch ($InvalidManifest) {
       "changed-file" { [IO.File]::AppendAllText((Join-Path $BadPayload "scripts\run-image2-mcp.ps1"), "corrupt") }
       "wrong-platform" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("platform windows", "platform linux"))) }
-      "wrong-version" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("version 0.4.2", "version 999.0.0"))) }
+      "wrong-version" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("version 0.4.3", "version 999.0.0"))) }
       "duplicate-record" { [IO.File]::AppendAllText($Manifest, "file duplicate`n") }
       "missing-manifest" { Remove-Item -LiteralPath $Manifest }
       "extra-file" { [IO.File]::WriteAllText((Join-Path $BadPayload ".env"), "unexpected") }

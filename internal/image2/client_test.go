@@ -116,9 +116,9 @@ func TestRejectsInvalidImageVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Generate(context.Background(), GenerateRequest{Prompt: "hello", Version: "3.0"})
-	if err == nil || err.Error() != "image version must be 2.0 or 2.5" {
-		t.Fatalf("err = %v, want image version must be 2.0 or 2.5", err)
+	_, err = client.Generate(context.Background(), GenerateRequest{Prompt: "hello", Version: "2.7"})
+	if err == nil || err.Error() != "image version must be 2.0, 2.5, or 2.6" {
+		t.Fatalf("err = %v, want image version must be 2.0, 2.5, or 2.6", err)
 	}
 }
 
@@ -135,9 +135,24 @@ func TestResolveRequestedModelAcceptsImage25Aliases(t *testing.T) {
 }
 
 func TestResolveRequestedModelRejectsMissingVersionTokens(t *testing.T) {
-	for _, version := range []string{"image", "生图", "image生图", "2.6"} {
+	for _, version := range []string{"image", "生图", "image生图", "2.7"} {
 		if _, err := resolveRequestedModel(version, DefaultModel); err == nil {
 			t.Fatalf("version %q unexpectedly accepted", version)
+		}
+	}
+}
+
+func TestResolveRequestedModelAcceptsImage26Aliases(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		model   string
+	}{
+		{"2.6", "gpt-image-2.6-sunburst"}, {"Image 2.6", "gpt-image-2.6-sunburst"}, {"image2.6", "gpt-image-2.6-sunburst"}, {"2.6生图", "gpt-image-2.6-sunburst"},
+		{"2.6-flare", "gpt-image-2.6-flare"}, {"image2.6-flare", "gpt-image-2.6-flare"}, {"2.6快速版", "gpt-image-2.6-flare"},
+	} {
+		model, err := resolveRequestedModel(tc.version, DefaultModel)
+		if err != nil || model != tc.model {
+			t.Fatalf("version %q resolved to %q, %v; want %q", tc.version, model, err, tc.model)
 		}
 	}
 }
@@ -252,6 +267,9 @@ func TestGenerateDecodesB64JSONAndWritesPNG(t *testing.T) {
 		if req["model"] != DefaultModel || req["prompt"] != "hello" || req["size"] != DefaultSize || req["n"].(float64) != 1 {
 			t.Fatalf("unexpected request payload: %#v", req)
 		}
+		if len(req) != 4 {
+			t.Fatalf("default PNG request gained optional fields: %#v", req)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(png)}},
 		})
@@ -272,6 +290,20 @@ func TestGenerateDecodesB64JSONAndWritesPNG(t *testing.T) {
 	}
 	if result.Model != DefaultModel || result.Size != DefaultSize {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.OutputFormat != "" || result.FrameCount != 0 || result.DurationMS != nil {
+		t.Fatalf("PNG result gained GIF metadata: %#v", result)
+	}
+	encodedResult, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resultFields map[string]any
+	if err := json.Unmarshal(encodedResult, &resultFields); err != nil {
+		t.Fatal(err)
+	}
+	if len(resultFields) != 3 {
+		t.Fatalf("PNG result JSON gained animation fields: %s", encodedResult)
 	}
 	if filepath.Dir(result.FilePath) != outDir {
 		t.Fatalf("file path escaped output dir: %s", result.FilePath)
