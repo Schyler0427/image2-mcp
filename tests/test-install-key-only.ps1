@@ -656,11 +656,7 @@ public static class __FAKE_GO_TYPE__ {
     }
     $env:OPENAI_IMAGE_API_KEY = "ambient-image"
     $env:GEMINI_IMAGE_API_KEY = "ambient-gemini"
-    $AdvancedInput = if ($AdvancedMode -eq "prebuilt" -or $AdvancedMode -eq "source") {
-      "https://api.schyler.top`r`nadvanced-image`r`nadvanced-gemini`r`n"
-    } else {
-      "`r`nadvanced-image`r`nadvanced-gemini`r`n"
-    }
+    $AdvancedInput = "`r`nadvanced-image`r`nadvanced-gemini`r`n"
     $AdvancedResult = Invoke-TestInstaller -InstallerArgs $AdvancedArgs -InputText $AdvancedInput
     Assert-True ($AdvancedResult.ExitCode -eq 0) "advanced $AdvancedMode install exposed credentials or failed: $($AdvancedResult.Output)"
     Assert-True (-not $AdvancedResult.Output.Contains("advanced-image")) "advanced $AdvancedMode exposed Image2 credential"
