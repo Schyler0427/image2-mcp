@@ -198,7 +198,7 @@ try {
   }
   Assert-True ($Manifest.Count -eq 15) "offline manifest must have exactly 15 lines"
   [IO.File]::WriteAllText((Join-Path $Payload "OFFLINE_PACKAGE_MANIFEST"), (($Manifest -join "`n") + "`n"), $Encoding)
-  Assert-True (@(Get-ChildItem -LiteralPath $Payload -Recurse -Force -File).Count -eq 14) "offline payload must have 13 files plus its manifest"
+  Assert-True (@(Get-ChildItem -LiteralPath $Payload -Recurse -Force -File).Count -eq 13) "offline payload must have 12 files plus its manifest"
   [IO.File]::WriteAllText($ConfigFile, $KeepConfig, $Encoding)
 
   # Real .exe shims also catch explicit go.exe/curl.exe calls; unlike .cmd shims
