@@ -18,6 +18,18 @@ $BoundInstallerParameters = @{} + $PSBoundParameters
 $RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:KeyOnlyApiKey = ""
 $script:KeyOnlyGeminiApiKey = ""
+$script:RedirectedStdinReader = $null
+
+function Read-RedirectedLine {
+  if ($null -eq $script:RedirectedStdinReader) {
+    $script:RedirectedStdinReader = New-Object IO.StreamReader(
+      [Console]::OpenStandardInput(),
+      (New-Object Text.UTF8Encoding($false)),
+      $true
+    )
+  }
+  return $script:RedirectedStdinReader.ReadLine()
+}
 
 function Enable-Image2Tls12 {
   [Net.ServicePointManager]::SecurityProtocol =
@@ -190,7 +202,7 @@ function Read-ImageApiKey([string]$Name) {
   $InputIsRedirected = [Console]::IsInputRedirected
   if ($InputIsRedirected) {
     Write-Host -NoNewline ($Name + ": ")
-    $Value = [Console]::In.ReadLine()
+    $Value = Read-RedirectedLine
     if ($null -eq $Value) {
       throw "supply both API key input lines; either line may be empty"
     }
@@ -701,7 +713,7 @@ function Write-InteractiveEnvironment {
   Write-Host "==> Interactive configuration"
   if ([Console]::IsInputRedirected) {
     Write-Host -NoNewline "OPENAI_IMAGE_BASE_URL [$BaseUrl]: "
-    $InputBaseUrl = [Console]::In.ReadLine()
+    $InputBaseUrl = Read-RedirectedLine
     if ($null -eq $InputBaseUrl) {
       throw "missing base URL input line"
     }

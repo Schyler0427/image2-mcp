@@ -521,23 +521,31 @@ function Invoke-AgentBootstrapInstaller(
   foreach ($KeyName in @("OPENAI_IMAGE_API_KEY", "GEMINI_IMAGE_API_KEY")) {
     $ProviderKeys[$KeyName] = [Environment]::GetEnvironmentVariable($KeyName, "Process")
   }
+  $Process = $null
   try {
     foreach ($KeyName in $ProviderKeys.Keys) {
       [Environment]::SetEnvironmentVariable($KeyName, $null, "Process")
     }
     [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", $RepositorySlug, "Process")
-    Push-Location (Split-Path -Parent $InstallerPath)
-    try {
-      $InstallerArguments = @("-KeyOnly")
-      if ($Offline) {
-        $InstallerArguments += "-Offline"
-      }
-      & $PowerShell.Source -NoProfile -ExecutionPolicy Bypass -File $InstallerPath @InstallerArguments
-      $InstallerExitCode = $LASTEXITCODE
-    } finally {
-      Pop-Location
+    $InstallerArguments = @("-KeyOnly")
+    if ($Offline) {
+      $InstallerArguments += "-Offline"
     }
+    # Start powershell.exe directly so the child inherits the raw OS stdin/stdout/stderr
+    # handles instead of PowerShell 5.1's native-command wrapper re-encoding stdin with a BOM.
+    [Console]::Out.Flush()
+    $Info = New-Object Diagnostics.ProcessStartInfo
+    $Info.FileName = $PowerShell.Source
+    $Info.WorkingDirectory = Split-Path -Parent $InstallerPath
+    $Info.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $InstallerPath.Replace('"', '\"') + '" ' + ($InstallerArguments -join ' ')
+    $Info.UseShellExecute = $false
+    $Process = [Diagnostics.Process]::Start($Info)
+    $Process.WaitForExit()
+    $InstallerExitCode = $Process.ExitCode
   } finally {
+    if ($null -ne $Process) {
+      $Process.Dispose()
+    }
     [Environment]::SetEnvironmentVariable("IMAGE2_MCP_REPO", $PreviousRepository, "Process")
     foreach ($KeyName in $ProviderKeys.Keys) {
       [Environment]::SetEnvironmentVariable($KeyName, $ProviderKeys[$KeyName], "Process")

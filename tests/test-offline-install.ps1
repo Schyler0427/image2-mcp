@@ -250,16 +250,7 @@ public static class Image2OfflineForbiddenCommand {
   Assert-Verified $First "real offline package installation"
   Assert-UnrelatedMcp
   Assert-True ((Get-FileFingerprint $InstalledBinary) -ceq (Get-FileFingerprint $BuiltBinary)) "installation replaced the bundled binary"
-  $EnvLines = [IO.File]::ReadAllText($EnvFile) -split '\r?\n'
-  if (-not ($EnvLines -ccontains ('OPENAI_IMAGE_API_KEY="' + $SecretText + '"'))) {
-    $Summary = ($EnvLines | Where-Object { $_ -ne '' } | ForEach-Object {
-      $Parts = $_.Split('=', 2)
-      $Val = if ($Parts.Count -eq 2) { $Parts[1] } else { '' }
-      $Head = if ($Val.Length -gt 0) { ($Val.Substring(0, [Math]::Min(6, $Val.Length)).ToCharArray() | ForEach-Object { '{0:X4}' -f [int]$_ }) -join ',' } else { '' }
-      "$($Parts[0]):len=$($Val.Length):head=$Head"
-    }) -join '; '
-    throw "FAIL: installer did not save the Key supplied on stdin (expected len=$($SecretText.Length + 2); got: $Summary; output: $($First.Output))"
-  }
+  Assert-True (([IO.File]::ReadAllText($EnvFile) -split '\r?\n') -ccontains ('OPENAI_IMAGE_API_KEY="' + $SecretText + '"')) "installer did not save the Key supplied on stdin"
   Assert-True (([IO.File]::ReadAllText($EnvFile) -split '\r?\n') -ccontains ('GEMINI_IMAGE_API_KEY="' + $GeminiSecretText + '"')) "installer did not save the Gemini Key supplied on stdin"
   $EnvBefore = Get-FileFingerprint $EnvFile
   $BinaryBefore = Get-FileFingerprint $InstalledBinary
