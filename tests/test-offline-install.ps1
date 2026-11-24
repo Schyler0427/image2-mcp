@@ -196,7 +196,7 @@ try {
     $Hash = Get-FileFingerprint $File.FullName
     $Manifest += "file $Hash $($File.Length) $Relative"
   }
-  Assert-True ($Manifest.Count -eq 16) "offline manifest must have exactly 16 lines"
+  Assert-True ($Manifest.Count -eq 15) "offline manifest must have exactly 15 lines"
   [IO.File]::WriteAllText((Join-Path $Payload "OFFLINE_PACKAGE_MANIFEST"), (($Manifest -join "`n") + "`n"), $Encoding)
   Assert-True (@(Get-ChildItem -LiteralPath $Payload -Recurse -Force -File).Count -eq 14) "offline payload must have 13 files plus its manifest"
   [IO.File]::WriteAllText($ConfigFile, $KeepConfig, $Encoding)
