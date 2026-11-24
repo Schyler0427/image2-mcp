@@ -87,8 +87,14 @@ function Invoke-TestChild(
     $StderrTask = $Process.StandardError.ReadToEndAsync()
     # The harmless Key goes only to attached stdin, never an argument, inherited
     # environment variable, PowerShell pipeline, or temporary input file.
+    # Write raw UTF-8 without a BOM so PowerShell 5.1's Console.InputEncoding
+    # never prepends EF BB BF bytes to the first key line.
     try {
-      if ($InputText.Length -gt 0) { $Process.StandardInput.Write($InputText) }
+      if ($InputText.Length -gt 0) {
+        $InputBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($InputText)
+        $Process.StandardInput.BaseStream.Write($InputBytes, 0, $InputBytes.Length)
+        $Process.StandardInput.BaseStream.Flush()
+      }
     } finally { $Process.StandardInput.Close() }
     if (-not $Process.WaitForExit($TimeoutMilliseconds)) {
       throw "test child timed out after $TimeoutMilliseconds milliseconds"
