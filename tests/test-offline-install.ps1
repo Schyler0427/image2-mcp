@@ -155,6 +155,7 @@ $InstalledBinary = Join-Path $Target "dist\image2-mcp.exe"
 $Forbid = Join-Path $TempRoot "forbidden commands"
 $ForbiddenLog = Join-Path $TempRoot "forbidden.log"
 $SecretText = "offline-install-test-value"
+  $ReplacementGeminiKey = "replacement-gemini-key-value"
 $Encoding = New-Object Text.UTF8Encoding($false)
 $KeepConfig = "[mcp_servers.keep]`r`ncommand = 'C:\keep\runner.exe'`r`nargs = ['keep-this-argument']`r`n"
 
@@ -177,8 +178,9 @@ try {
   # Exactly the paths and order in scripts/build-offline-package.sh; copy bytes
   # without text conversion, including both wrappers and root bootstrap helpers.
   $PayloadPaths = @("install.sh", "install.ps1", "go.mod", "LICENSE", "scripts/setup.sh",
-    "scripts/run-image2-mcp.sh", "scripts/run-image2-mcp.ps1", "scripts/bootstrap-agent-install.sh",
-    "scripts/bootstrap-agent-install.ps1", "dist/image2-mcp.exe")
+    "scripts/offline-binary.sh", "scripts/offline-binary.ps1", "scripts/run-image2-mcp.sh",
+    "scripts/run-image2-mcp.ps1", "scripts/bootstrap-agent-install.sh", "scripts/bootstrap-agent-install.ps1",
+    "dist/image2-mcp.exe")
   foreach ($Relative in $PayloadPaths) {
     $Source = if ($Relative -ceq "dist/image2-mcp.exe") { $BuiltBinary } else { Join-Path $Root $Relative }
     Copy-Item -LiteralPath $Source -Destination (Join-Path $Payload $Relative)
@@ -194,9 +196,9 @@ try {
     $Hash = Get-FileFingerprint $File.FullName
     $Manifest += "file $Hash $($File.Length) $Relative"
   }
-  Assert-True ($Manifest.Count -eq 13) "offline manifest must have exactly 13 lines"
+  Assert-True ($Manifest.Count -eq 16) "offline manifest must have exactly 16 lines"
   [IO.File]::WriteAllText((Join-Path $Payload "OFFLINE_PACKAGE_MANIFEST"), (($Manifest -join "`n") + "`n"), $Encoding)
-  Assert-True (@(Get-ChildItem -LiteralPath $Payload -Recurse -Force -File).Count -eq 11) "offline payload must have 10 files plus its manifest"
+  Assert-True (@(Get-ChildItem -LiteralPath $Payload -Recurse -Force -File).Count -eq 14) "offline payload must have 13 files plus its manifest"
   [IO.File]::WriteAllText($ConfigFile, $KeepConfig, $Encoding)
 
   # Real .exe shims also catch explicit go.exe/curl.exe calls; unlike .cmd shims
