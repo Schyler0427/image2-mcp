@@ -699,7 +699,19 @@ function Test-KeyOnlyInstall {
 
 function Write-InteractiveEnvironment {
   Write-Host "==> Interactive configuration"
-  $InputBaseUrl = Read-Host "OPENAI_IMAGE_BASE_URL [$BaseUrl]"
+  if ([Console]::IsInputRedirected) {
+    Write-Host -NoNewline "OPENAI_IMAGE_BASE_URL [$BaseUrl]: "
+    $InputBaseUrl = [Console]::In.ReadLine()
+    if ($null -eq $InputBaseUrl) {
+      throw "missing base URL input line"
+    }
+    if ($InputBaseUrl.Length -gt 0 -and [int]$InputBaseUrl[0] -eq 0xFEFF) {
+      $InputBaseUrl = $InputBaseUrl.Substring(1)
+    }
+    Write-Host ""
+  } else {
+    $InputBaseUrl = Read-Host "OPENAI_IMAGE_BASE_URL [$BaseUrl]"
+  }
   if (-not [string]::IsNullOrWhiteSpace($InputBaseUrl)) {
     $script:BaseUrl = $InputBaseUrl
   }

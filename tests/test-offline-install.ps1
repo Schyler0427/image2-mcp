@@ -112,6 +112,7 @@ function Invoke-TestChild(
 
 function Assert-NoKeyLeak([string]$Output) {
   Assert-True (-not $Output.Contains($SecretText)) "offline installation exposed the test Key"
+  Assert-True (-not $Output.Contains($GeminiSecretText)) "offline installation exposed the Gemini test Key"
 }
 
 function Assert-Verified($Result, [string]$Label) {
@@ -155,7 +156,8 @@ $InstalledBinary = Join-Path $Target "dist\image2-mcp.exe"
 $Forbid = Join-Path $TempRoot "forbidden commands"
 $ForbiddenLog = Join-Path $TempRoot "forbidden.log"
 $SecretText = "offline-install-test-value"
-  $ReplacementGeminiKey = "replacement-gemini-key-value"
+$GeminiSecretText = "gemini-offline-test-value"
+$ReplacementGeminiKey = "replacement-gemini-key-value"
 $Encoding = New-Object Text.UTF8Encoding($false)
 $KeepConfig = "[mcp_servers.keep]`r`ncommand = 'C:\keep\runner.exe'`r`nargs = ['keep-this-argument']`r`n"
 
@@ -186,6 +188,7 @@ try {
     Copy-Item -LiteralPath $Source -Destination (Join-Path $Payload $Relative)
   }
   foreach ($Relative in @("install-offline.sh", "install-offline.ps1", "OFFLINE_INSTALL.md",
+    "scripts/offline-binary.sh", "scripts/offline-binary.ps1",
     "scripts/bootstrap-agent-install.sh", "scripts/bootstrap-agent-install.ps1")) {
     Copy-Item -LiteralPath (Join-Path $Root $Relative) -Destination (Join-Path $Package $Relative)
   }
@@ -230,26 +233,32 @@ public static class Image2OfflineForbiddenCommand {
     OPENAI_IMAGE_API_KEY = $null
     OPENAI_IMAGE_BASE_URL = $null
     OPENAI_IMAGE_MODEL = $null
+    GEMINI_IMAGE_API_KEY = $null
+    GEMINI_IMAGE_BASE_URL = $null
+    GEMINI_IMAGE_MODEL = $null
     IMAGE2_OFFLINE_FORBIDDEN_LOG = $ForbiddenLog
   }
   $InstallerArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $Package "install-offline.ps1"))
   $First = Invoke-TestChild -Executable $PowerShell -ChildArguments $InstallerArguments `
-    -ChildEnvironment $ChildEnvironment -InputText ($SecretText + "`r`n")
+    -ChildEnvironment $ChildEnvironment -InputText ($SecretText + "`r`n" + $GeminiSecretText + "`r`n")
   Assert-Verified $First "real offline package installation"
   Assert-UnrelatedMcp
   Assert-True ((Get-FileFingerprint $InstalledBinary) -ceq (Get-FileFingerprint $BuiltBinary)) "installation replaced the bundled binary"
   Assert-True (([IO.File]::ReadAllText($EnvFile) -split '\r?\n') -ccontains ('OPENAI_IMAGE_API_KEY="' + $SecretText + '"')) "installer did not save the Key supplied on stdin"
+  Assert-True (([IO.File]::ReadAllText($EnvFile) -split '\r?\n') -ccontains ('GEMINI_IMAGE_API_KEY="' + $GeminiSecretText + '"')) "installer did not save the Gemini Key supplied on stdin"
   $EnvBefore = Get-FileFingerprint $EnvFile
   $BinaryBefore = Get-FileFingerprint $InstalledBinary
 
   # Repeat must request and save an independently supplied Image2 Key.
   $ReplacementKey = "replacement-image-key-value"
-  $Repeat = Invoke-TestChild -Executable $PowerShell -ChildArguments $InstallerArguments -ChildEnvironment $ChildEnvironment -InputText ($ReplacementKey + "`r`n")
+  $Repeat = Invoke-TestChild -Executable $PowerShell -ChildArguments $InstallerArguments -ChildEnvironment $ChildEnvironment -InputText ($ReplacementKey + "`r`n" + $ReplacementGeminiKey + "`r`n")
   Assert-Verified $Repeat "real offline package repeat"
   Assert-True (-not $Repeat.Output.Contains("reusing it")) "repeat reused the saved Key"
   Assert-True ($Repeat.Output.Contains("OPENAI_IMAGE_API_KEY:")) "repeat did not prompt for Image2 Key"
   Assert-True (-not $Repeat.Output.Contains($ReplacementKey)) "repeat leaked replacement Key"
+  Assert-True (-not $Repeat.Output.Contains($ReplacementGeminiKey)) "repeat leaked replacement Gemini Key"
   Assert-True (([IO.File]::ReadAllText($EnvFile) -split '\r?\n') -ccontains ('OPENAI_IMAGE_API_KEY="' + $ReplacementKey + '"')) "repeat ignored replacement Image2 Key"
+  Assert-True (([IO.File]::ReadAllText($EnvFile) -split '\r?\n') -ccontains ('GEMINI_IMAGE_API_KEY="' + $ReplacementGeminiKey + '"')) "repeat ignored replacement Gemini Key"
   Assert-True ((Get-FileFingerprint $InstalledBinary) -ceq $BinaryBefore) "repeat changed the bundled binary"
   Assert-UnrelatedMcp
   $Backups = @(Get-ChildItem -LiteralPath $LocalAppData -Directory -Filter "image2-mcp.backup.*")

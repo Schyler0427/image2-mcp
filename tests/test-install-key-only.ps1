@@ -80,7 +80,7 @@ $SavedEnvironment = @{}
 foreach ($Name in @("PATH", "RUN_IMAGE2_SMOKE", "IMAGE2_MCP_REPO", "IMAGE2_MCP_TEST_GO_LOG")) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
-foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELEASE_ZIP", "IMAGE2_MCP_TEST_INSTALLER", "IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "IMAGE2_MCP_TEST_EXPECTED_API_KEY", "IMAGE2_MCP_TEST_VERIFY_MODE", "IMAGE2_MCP_TEST_VERIFY_PIDS", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_API_KEY")) {
+foreach ($Name in @("HOME", "USERPROFILE", "LOCALAPPDATA", "IMAGE2_MCP_TEST_RELEASE_ZIP", "IMAGE2_MCP_TEST_INSTALLER", "IMAGE2_MCP_TEST_EXPECTED_BASE_URL", "IMAGE2_MCP_TEST_EXPECTED_API_KEY", "IMAGE2_MCP_TEST_VERIFY_MODE", "IMAGE2_MCP_TEST_VERIFY_PIDS", "OPENAI_IMAGE_BASE_URL", "OPENAI_IMAGE_API_KEY", "GEMINI_IMAGE_API_KEY")) {
   $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name, "Process")
 }
 
@@ -644,31 +644,26 @@ public static class __FAKE_GO_TYPE__ {
   $env:IMAGE2_MCP_TEST_GO_LOG = $AdvancedGoLog
   $env:IMAGE2_MCP_REPO = "Schyler0427/image2-mcp"
   $env:RUN_IMAGE2_SMOKE = $null
+  $env:IMAGE2_MCP_TEST_EXPECTED_API_KEY = "advanced-image"
   foreach ($AdvancedMode in @("prebuilt", "source", "existing-smoke", "ambient-source")) {
     $AdvancedArgs = switch ($AdvancedMode) {
-      "prebuilt" { @("-BaseUrl", "https://api.schyler.top", "-Prebuilt", "-SkipTests") }
-      "source" { @("-BaseUrl", "https://api.schyler.top") }
+      "prebuilt" { @("-Interactive", "-Prebuilt", "-SkipTests") }
+      "source" { @("-Interactive") }
       "existing-smoke" { @("-Smoke") }
       "ambient-source" { @("-BaseUrl", "https://api.schyler.top") }
     }
     if ($AdvancedMode -eq "ambient-source") {
       Remove-Item -Force -ErrorAction SilentlyContinue $EnvFile, (Join-Path $Repo ".env")
     }
-    $env:OPENAI_IMAGE_API_KEY = "advanced-image"
-    $env:GEMINI_IMAGE_API_KEY = "advanced-gemini"
-    if ($AdvancedMode -eq "existing-smoke") {
-      [IO.File]::WriteAllText($EnvFile, @'
-OPENAI_IMAGE_BASE_URL="https://api.schyler.top"
-OPENAI_IMAGE_API_KEY="advanced-image"
-GEMINI_IMAGE_BASE_URL="https://api.schyler.top"
-GEMINI_IMAGE_API_KEY="advanced-gemini"
-'@, (New-Object Text.UTF8Encoding($false)))
-    }
+    $env:OPENAI_IMAGE_API_KEY = "ambient-image"
+    $env:GEMINI_IMAGE_API_KEY = "ambient-gemini"
     $AdvancedInput = "`r`nadvanced-image`r`nadvanced-gemini`r`n"
     $AdvancedResult = Invoke-TestInstaller -InstallerArgs $AdvancedArgs -InputText $AdvancedInput
     Assert-True ($AdvancedResult.ExitCode -eq 0) "advanced $AdvancedMode install exposed credentials or failed: $($AdvancedResult.Output)"
     Assert-True (-not $AdvancedResult.Output.Contains("advanced-image")) "advanced $AdvancedMode exposed Image2 credential"
     Assert-True (-not $AdvancedResult.Output.Contains("advanced-gemini")) "advanced $AdvancedMode exposed Gemini credential"
+    Assert-True (-not $AdvancedResult.Output.Contains("ambient-image")) "advanced $AdvancedMode exposed ambient Image2 credential"
+    Assert-True (-not $AdvancedResult.Output.Contains("ambient-gemini")) "advanced $AdvancedMode exposed ambient Gemini credential"
   }
   $ExpectedGoCalls = @("test", "build", "test", "build", "smoke", "test", "build")
   Assert-True (([IO.File]::ReadAllLines($AdvancedGoLog) -join ",") -ceq ($ExpectedGoCalls -join ",")) "advanced build/smoke fixture did not run all intended child processes"
