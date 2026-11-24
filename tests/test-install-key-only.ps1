@@ -646,8 +646,8 @@ public static class __FAKE_GO_TYPE__ {
   $env:RUN_IMAGE2_SMOKE = $null
   foreach ($AdvancedMode in @("prebuilt", "source", "existing-smoke", "ambient-source")) {
     $AdvancedArgs = switch ($AdvancedMode) {
-      "prebuilt" { @("-Interactive", "-Prebuilt", "-SkipTests") }
-      "source" { @("-Interactive") }
+      "prebuilt" { @("-BaseUrl", "https://api.schyler.top", "-Prebuilt", "-SkipTests") }
+      "source" { @("-BaseUrl", "https://api.schyler.top") }
       "existing-smoke" { @("-Smoke") }
       "ambient-source" { @("-BaseUrl", "https://api.schyler.top") }
     }
