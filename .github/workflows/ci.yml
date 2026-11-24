@@ -45,3 +45,4 @@ jobs:
           ./tests/test-agent-bootstrap.ps1
           ./tests/test-offline-install.ps1
           ./tests/test-launcher-architecture.ps1
+          ./tests/test-bootstrap-directory-move.ps1

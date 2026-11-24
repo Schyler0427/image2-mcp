@@ -6,7 +6,7 @@ readme="$root/README.md"
 workflow="$root/.github/workflows/release.yml"
 windows_installer="$root/install.ps1"
 expected_release="v$(sed -n 's/^const serverVersion = "\([^"]*\)"/\1/p' "$root/cmd/image2-mcp/main.go")"
-published_release='v0.4.0'
+published_release='v0.4.4'
 for versioned_path in AGENT_INSTALL.md scripts/bootstrap-agent-install.sh scripts/bootstrap-agent-install.ps1; do
   actual_releases="$(grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' "$root/$versioned_path" | sort -u)"
   [[ "$actual_releases" == "$published_release" ]] || {
@@ -64,8 +64,8 @@ for required in \
   }
 done
 for required in \
-  'a blank or whitespace-only input leaves that provider unconfigured and clears its' \
-  'previous key; it must not fall back to an inherited environment key.' \
+  'Blank or whitespace-only input leaves that provider unconfigured and clears its previous key;' \
+  'it must not fall back to an inherited environment key.' \
   'If both inputs are blank or whitespace-only, fail once with no re-prompt.' \
   'an empty line for an unconfigured provider.' \
   'Never claim a blank provider was configured.' \
@@ -76,13 +76,13 @@ for required in \
   }
 done
 for scope_doc in "$readme" "$doc"; do
-  grep -Fq '0.4.3 本地 GUI／离线包支持只配置一把密钥，并提供 Image2.6 与动态 GIF 生图；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空，也没有本地 0.4.3 的新功能。' "$scope_doc" || {
+  grep -Fq '0.4.3 本地 GUI／离线包' "$scope_doc" || {
     echo "FAIL: $scope_doc does not distinguish current offline keys from the published online gate" >&2
     exit 1
   }
   for required in \
-    '这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。' \
-    '只配置一把密钥或使用 Image2.6／GIF 时，请使用 0.4.3 本地 GUI 或离线包。'; do
+    'v0.4.4' \
+    '完整离线包'; do
     grep -Fq "$required" "$scope_doc" || {
       echo "FAIL: $scope_doc does not explain source-checkout Key-only limitations: $required" >&2
       exit 1
@@ -90,9 +90,7 @@ for scope_doc in "$readme" "$doc"; do
   done
 done
 for required in \
-  '该旧版的 MCP 验证要求 Image2 和 Gemini 密钥均非空，留空任意一项不能完成安装。' \
-  '当前在线 Key-only 路径需两项均非空，供旧版验证使用' \
-  'Key-only 模式直接下载固定 `v0.4.0` Release 的预编译二进制'; do
+  'Key-only 模式直接下载固定 `v0.4.4` Release 的预编译二进制'; do
   grep -Fq "$required" "$readme" || {
     echo "FAIL: README source-checkout Key-only instructions promise unsupported one-key installation: $required" >&2
     exit 1
@@ -116,7 +114,7 @@ if grep -Eiq 'gpt-image-2\.[056](-sunburst|-flare)?' "$readme" "$doc" "$root/OFF
   exit 1
 fi
 for customer_doc in README.md AGENT_INSTALL.md OFFLINE_INSTALL.md macos/README.md docs/launcher-release.md; do
-  for required in '0.4.3' '用2.6生图' '用2.6快速版生图' '生成动图' '做个GIF' '循环动图' 'v0.4.0'; do
+  for required in '0.4.3' '用2.6生图' '用2.6快速版生图' '生成动图' '做个GIF' '循环动图' 'v0.4.4'; do
     grep -Fq "$required" "$root/$customer_doc" || {
       echo "FAIL: $customer_doc missing local Image2.6/GIF or pinned online scope: $required" >&2
       exit 1
@@ -185,8 +183,8 @@ grep -Fq '$Security = Get-Acl -Path $Path' "$windows_installer" || {
   exit 1
 }
 for required in \
-  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0' \
-  'v0.4.0' \
+  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4' \
+  'v0.4.4' \
   'image2-mcp_darwin_arm64.tar.gz' \
   'image2-mcp_darwin_amd64.tar.gz' \
   'image2-mcp_linux_arm64.tar.gz' \

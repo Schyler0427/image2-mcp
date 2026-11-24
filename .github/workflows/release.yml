@@ -39,6 +39,7 @@ jobs:
           ./tests/test-install-key-only.ps1
           ./tests/test-agent-bootstrap.ps1
           ./tests/test-offline-install.ps1
+          ./tests/test-bootstrap-directory-move.ps1
 
   build:
     needs: installer-tests

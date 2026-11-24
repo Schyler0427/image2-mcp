@@ -27,7 +27,7 @@ verify_offline_binary() {
   wait "$pid" || status=$?
   kill "$watchdog" 2>/dev/null || true
   wait "$watchdog" 2>/dev/null || true
-  if [[ "$status" -ne 0 || "$(cat "$log")" != "image2-mcp 0.4.3 offline-v1 $(platform_name) $(arch_name)" ]]; then
+  if [[ "$status" -ne 0 || "$(cat "$log")" != "image2-mcp 0.4.4 offline-v1 $(platform_name) $(arch_name)" ]]; then
     rm -f "$log"
     echo 'error: offline binary version/platform check failed' >&2
     return 1

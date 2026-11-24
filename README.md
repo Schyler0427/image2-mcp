@@ -1,5 +1,7 @@
 # SchylerAI-Image2-mcp
 
+Windows 0.4.4 修复安装目录切换时短暂“访问被拒绝”导致的安装失败：对拒绝访问、共享冲突和锁冲突最多尝试 6 次，间隔 1 秒；失败后仍执行原有回滚。Windows 客户可使用 v0.4.4 单文件 EXE或 PowerShell 在线安装命令。
+
 SchylerAI-Image2-mcp 是一个给 Codex 使用的本地 STDIO MCP 服务，支持 Image2 和 Gemini 独立密钥，至少配置一把即可，也可同时配置两把。默认使用 **Image2（Image 2.0）**；明确说 Gemini、香蕉或 banana 生图时才使用 Gemini 3.1 Flash Image。它提供四个工具：
 
 - `generate_image`：统一文生图，`model=image2`（普通 PNG 默认）、`image2.5`、`image2.6`、`image2.6-flare` 或 `gemini`（也接受 `banana` / `香蕉`）；支持 Image2.6 动态 GIF 生成
@@ -7,7 +9,7 @@ SchylerAI-Image2-mcp 是一个给 Codex 使用的本地 STDIO MCP 服务，支�
 - `generate_image2`：调用固定网关的 Image 2.0 / Image 2.5 / Image 2.6 生图接口
 - `edit_image2`：图生图编辑（支持 Image 2.0 / Image 2.5 / Image 2.6、多图输入和可选蒙版）
 
-后两个工具保留旧版 Image2 调用行为。以下 Image2.6 与 GIF 说明适用于本地 0.4.3 构建，固定在线 `v0.4.0` 安装尚不包含这些功能。新调用使用统一工具，用户直接说模型名称即可。Gemini 原生接口使用自己的专用密钥，读取 `candidates[].content.parts[]` 的图片数据；支持文字在图片前、camelCase/snake_case 字段，并将有效 PNG/JPEG/WebP 图片保存为 PNG。
+后两个工具保留旧版 Image2 调用行为。v0.4.4 在线版和本地 0.4.3/0.4.4 构建都支持 Image2.6 与 GIF。新调用使用统一工具，用户直接说模型名称即可。Gemini 原生接口使用自己的专用密钥，读取 `candidates[].content.parts[]` 的图片数据；支持文字在图片前、camelCase/snake_case 字段，并将有效 PNG/JPEG/WebP 图片保存为 PNG。
 
 Image2 支持接口返回的 `data[0].b64_json` 和 `data[0].url`，优先使用 Base64，
 否则下载图片并保存到本地。普通 PNG 请求中链接返回的 JPEG / GIF 会转为 PNG；明确请求动态 GIF 时，
@@ -60,15 +62,15 @@ Windows 使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\instal
 不下载依赖，也不调用生图 API；升级会重新询问本次要配置的专用 Key，至少配置一把，并保留旧版备份。
 完整离线包需要本分支构建；尚未发布，自有下载服务也尚未部署。
 
-0.4.3 本地 GUI／离线包支持只配置一把密钥，并提供 Image2.6 与动态 GIF 生图；所有在线 Key-only 路径仍使用已发布的 `v0.4.0`，其旧版 `--verify-mcp` 校验要求两把密钥均非空，也没有本地 0.4.3 的新功能。这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。只配置一把密钥或使用 Image2.6／GIF 时，请使用 0.4.3 本地 GUI 或离线包。维护者发布并更新在线版本前，请按所用路径的要求输入。
+0.4.3 本地 GUI／离线包和 v0.4.4 在线 Key-only 安装都支持只配置一把密钥、Image2.6 与动态 GIF 生图。只配置一把密钥或使用 Image2.6／GIF 时，可使用 v0.4.4 在线安装或完整离线包。
 
-能够访问 GitHub 且已准备好 Image2 和 Gemini 密钥时，也可使用原有在线安装指令：
+能够访问 GitHub 时，按提示输入 Image2 和 Gemini Key，也可只配置其中一把：
 
 ```text
-请安装并配置 Image2 MCP：读取并严格执行 https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/AGENT_INSTALL.md，按当前固定在线版本的要求输入 Image2 和 Gemini 专用 API Key，除密钥外不要向我询问其他配置，完成安装和验证后再结束。
+请安装并配置 Image2 MCP：读取并严格执行 https://raw.githubusercontent.com/Schyler0427/image2-mcp/main/AGENT_INSTALL.md，输入至少一把 Image2 或 Gemini 专用 API Key，除密钥外不要向我询问其他配置，完成安装和验证后再结束。
 ```
 
-对于 0.4.3 本地 GUI／离线包，客户只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把；每次安装或升级都会分别询问。留空表示该服务未配置，并清除该服务原有配置；不会复用其他服务、环境变量或旧安装的 Key。两个输入均为空或仅含空白时，安装会直接失败，不会反复询问。
+在线和离线安装都只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把；每次安装或升级都会分别询问。留空表示该服务未配置，并清除该服务原有配置；不会复用其他服务、环境变量或旧安装的 Key。两个输入均为空或仅含空白时，安装会直接失败，不会反复询问。
 安装失败时会报告失败阶段，不会自动反复安装或切换下载地址。Release 检查只请求一次 API。
 安装成功必须通过本地 MCP 握手、版本和四个工具的检查，验证过程不会调用生图接口。
 
@@ -96,7 +98,7 @@ Key-only 安装无需配置或修改 Base URL；程序默认使用上述网关�
 ### 前置条件
 
 - 已安装 Codex
-- 当前在线 Key-only 安装需同时准备独立可用的 `OPENAI_IMAGE_API_KEY` 和 `GEMINI_IMAGE_API_KEY`；0.4.3 GUI／离线包至少配置一把即可
+- 当前在线 Key-only 安装和 0.4.3 GUI／离线包至少配置一把独立的 Image2 或 Gemini Key 即可
 - 推荐仓库已经发布 GitHub Release；这样使用者不需要安装 Go
 - 如果仓库还没有 Release，则需要本机安装 Go，让脚本从源码编译
 
@@ -105,11 +107,11 @@ Key-only 安装无需配置或修改 Base URL；程序默认使用上述网关�
 安装脚本有两种模式：
 
 - 本机有 Go：普通模式运行测试并从源码编译；Key-only 模式仍下载固定 Release
-- 本机没有 Go：从 GitHub Releases 下载当前系统的预编译二进制；当前固定版本仍为 `v0.4.0`
+- 本机没有 Go：从 GitHub Releases 下载当前系统的预编译二进制；当前固定版本为 `v0.4.4`
 
 ### 从 GitHub 拉取后安装
 
-以下命令使用在线 Key-only 安装，即使从 0.4.3 源码目录运行，也会下载固定的 `v0.4.0` 二进制。该旧版的 MCP 验证要求 Image2 和 Gemini 密钥均非空，留空任意一项不能完成安装。只配置一把密钥或使用 Image2.6／GIF 时，请使用 0.4.3 本地 GUI 或离线包。输入的密钥保存到本地 `.env.local`，不会写入 Codex 配置，也不会提交到 GitHub。
+以下命令使用在线 Key-only 安装，即使从源码目录运行，也会下载固定的 `v0.4.4` 二进制。客户至少配置一把 Image2 或 Gemini Key 即可。输入的密钥保存到本地 `.env.local`，不会写入 Codex 配置，也不会提交到 GitHub。
 
 ### macOS / Linux
 
@@ -129,15 +131,15 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -KeyOnly
 
 安装脚本会做这些事：
 
-1. 依次交互式输入 `OPENAI_IMAGE_API_KEY` 和 `GEMINI_IMAGE_API_KEY`；当前在线 Key-only 路径需两项均非空，供旧版验证使用
+1. 依次交互式输入 `OPENAI_IMAGE_API_KEY` 和 `GEMINI_IMAGE_API_KEY`；至少一项非空即可，空项会清除该服务的旧 Key
 2. 写入本地 `.env.local`
-3. Key-only 模式直接下载固定 `v0.4.0` Release 的预编译二进制，不安装 Go，也不运行源码测试
+3. Key-only 模式直接下载固定 `v0.4.4` Release 的预编译二进制，不安装 Go，也不运行源码测试
 4. 写入 Codex MCP 配置，启动超时为 20 秒，工具执行超时为 600 秒
 5. 检查实际 MCP 握手、版本和工具列表，通过后输出 `Verification: OK`
 
 `.env.local`、`dist/`、`output/` 都已加入 `.gitignore`，不要提交到 GitHub。
 
-如果你想强制使用 GitHub Release 里的预编译二进制，即使本机安装了 Go，也可运行以下命令；它们仍下载 `v0.4.0`，需要两项密钥均非空：
+如果你想强制使用 GitHub Release 里的预编译二进制，即使本机安装了 Go，也可运行以下命令；它们仍下载 `v0.4.4`：
 
 macOS / Linux：
 
@@ -189,7 +191,7 @@ GEMINI_IMAGE_BASE_URL="https://api.schyler.top"
 GEMINI_IMAGE_MODEL="gemini-3.1-flash-image"
 ```
 
-本次输入的 API Key 会分别保存在本地 `.env.local`，不在文档示例中展示。0.4.3 程序支持将未配置的服务保存为空值，清除该服务原有配置，runner 不会改用环境变量里的 Key；在线 Key-only 下载的旧版二进制仍要求两项密钥均非空才能通过验证。`GEMINI_IMAGE_MODEL` 是维护者高级配置，客户不需要填写。
+本次输入的 API Key 会分别保存在本地 `.env.local`，不在文档示例中展示。未配置的服务保存为空值并清除该服务原有配置，runner 不会改用环境变量里的 Key。`GEMINI_IMAGE_MODEL` 是维护者高级配置，客户不需要填写。
 
 Agent 根据自然语言选择工具参数：普通 PNG 未提模型使用 Image2 2.0，说“使用 image2 生成”选择 Image 2.0，说“用 2.5 生图”选择 Image 2.5，说“用2.6生图”选择 Image2.6 Sunburst，说“用2.6快速版生图”选择 Image2.6 Flare。0.4.3 本地版本中，“生成动图”“做个GIF”“循环动图”自动使用 GIF 与 Flare，除非明确指定模型。只有明确说 Gemini、香蕉或 banana 生图才选择 Gemini 3.1 Flash Image。所选服务未配置时会报错，不会自动切换服务；仅配置 Gemini 也不会改变默认模型。客户不填写模型 ID。
 
@@ -302,8 +304,8 @@ windows/amd64
 发布方式：
 
 ```bash
-git tag v0.4.3
-git push origin v0.4.3
+git tag v0.4.4
+git push origin v0.4.4
 ```
 
 Release 产物命名：
@@ -327,7 +329,7 @@ image2-mcp_windows_amd64.zip
 
 ```bash
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o dist/image2-mcp ./cmd/image2-mcp
-bash scripts/build-offline-package.sh --os darwin --arch arm64 --binary dist/image2-mcp --version 0.4.3 --output dist/offline
+bash scripts/build-offline-package.sh --os darwin --arch arm64 --binary dist/image2-mcp --version 0.4.4 --output dist/offline
 ```
 
 ### 真实生图测试
@@ -395,7 +397,7 @@ output/imagegen/mcp-edit-multi-smoke-test.png
 
 统一参考图编辑工具 `edit_image` 额外接收有序的 `image_paths` 数组。Gemini 调用将 `model` 改为 `gemini`，使用 `aspect_ratio` 和 `image_size` 替代 `size`。以下旧工具示例继续保留用于兼容已有调用。
 
-本地 0.4.3 的动态 GIF 示例（`generate_image`；未指定模型时也会自动选择 Flare）：
+0.4.4 的动态 GIF 示例（`generate_image`；未指定模型时也会自动选择 Flare）：
 
 ```json
 {

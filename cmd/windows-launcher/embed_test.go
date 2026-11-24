@@ -86,7 +86,7 @@ func fixtureEmbeddedFS(t *testing.T, tamper bool) fs.FS {
 	binary := []byte("image2-mcp executable fixture")
 	hash := sha256.Sum256(binary)
 	manifest := PayloadManifest{
-		Version: "0.4.0",
+		Version: "0.4.4",
 		Architectures: map[string]PayloadInfo{
 			"386":   {SHA256: hex.EncodeToString(hash[:]), Size: int64(len(binary))},
 			"amd64": {SHA256: hex.EncodeToString(hash[:]), Size: int64(len(binary))},
@@ -102,7 +102,7 @@ func fixtureEmbeddedFS(t *testing.T, tamper bool) fs.FS {
 	}
 	files := map[string]string{
 		"manifest.json":                               string(raw),
-		"version":                                     "0.4.0\n",
+		"version":                                     "0.4.4\n",
 		"install-offline.ps1":                         "Write-Output installer\n",
 		"scripts/bootstrap-agent-install.ps1":         "Write-Output bootstrap-root\n",
 		"scripts/offline-binary.ps1":                  "Write-Output offline-root\n",

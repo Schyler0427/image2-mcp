@@ -98,7 +98,7 @@ using System.Threading;
 public static class Program {
   public static int Main(string[] args) {
     if (args.Length == 1 && args[0] == "--version") {
-      Console.WriteLine("image2-mcp 0.4.3 offline-v1 windows __ARCH__");
+      Console.WriteLine("image2-mcp 0.4.4 offline-v1 windows __ARCH__");
       return 0;
     }
     bool baseUrlMatches = String.Equals(
@@ -283,7 +283,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
   Assert-True (-not $Result.Output.Contains($Secret)) "API Key leaked to output"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"
-  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.0/")) "Release tag is not fixed"
+  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.4/")) "Release tag is not fixed"
   Assert-True ($Result.Output.Contains("Base URL: https://api.schyler.top")) "reported base URL is not fixed"
   Assert-True (-not $Result.Output.Contains("legacy-key-must-not-win")) "legacy API Key leaked to output"
 

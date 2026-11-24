@@ -33,6 +33,29 @@ function New-AgentBootstrapDirectory([string]$Parent, [string]$Prefix) {
   throw "could not allocate a transaction directory"
 }
 
+function Move-AgentBootstrapDirectoryOnce([string]$Source, [string]$Destination) {
+  [IO.Directory]::Move($Source, $Destination)
+}
+
+function Move-AgentBootstrapDirectory([string]$Source, [string]$Destination) {
+  # Windows may briefly deny renaming a directory after its bundled binary
+  # exits. Bound retries to five seconds; permanent failures still reach the
+  # existing transaction rollback with their original exception intact.
+  for ($Attempt = 1; $Attempt -le 6; $Attempt++) {
+    try {
+      Move-AgentBootstrapDirectoryOnce $Source $Destination
+      return
+    } catch {
+      $Failure = $_.Exception.GetBaseException()
+      $NativeError = $Failure.HResult -band 0xFFFF
+      $Retryable = ($Failure -is [UnauthorizedAccessException] -or $Failure -is [IO.IOException]) -and
+        $NativeError -in @(5, 32, 33)
+      if (-not $Retryable -or $Attempt -eq 6) { throw }
+      Start-Sleep -Seconds 1
+    }
+  }
+}
+
 function Assert-AgentBootstrapPlainFile([string]$Path, [string]$Description) {
   $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
   if ($Item.PSIsContainer -or (Test-AgentBootstrapReparsePoint $Item)) {
@@ -48,14 +71,14 @@ function Assert-AgentBootstrapPlainDirectory([string]$Path, [string]$Description
 }
 
 function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
-  if ($null -eq $Release -or $Release.tag_name -cne "v0.4.0") {
+  if ($null -eq $Release -or $Release.tag_name -cne "v0.4.4") {
     throw "public Release gate returned the wrong tag"
   }
   if ($Release.draft -isnot [bool] -or $Release.draft) {
-    throw "public v0.4.0 Release must not be a draft"
+    throw "public v0.4.4 Release must not be a draft"
   }
   if ($Release.prerelease -isnot [bool] -or $Release.prerelease) {
-    throw "public v0.4.0 Release must not be a prerelease"
+    throw "public v0.4.4 Release must not be a prerelease"
   }
 
   $AssetNames = @()
@@ -66,7 +89,7 @@ function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
   }
   foreach ($Name in $RequiredAssets) {
     if (-not ($AssetNames -ccontains $Name)) {
-      throw "public v0.4.0 Release is missing required asset: $Name"
+      throw "public v0.4.4 Release is missing required asset: $Name"
     }
   }
 }
@@ -404,7 +427,7 @@ function Assert-AgentBootstrapOfflinePackage([string]$Package) {
     default { throw "unsupported offline package architecture" }
   }
   if ($Lines.Count -ne 15 -or $Lines[0] -cne "IMAGE2_MCP_OFFLINE 1" -or
-      $Lines[1] -cne "version 0.4.3" -or $Lines[2] -cne "platform windows $Arch") {
+      $Lines[1] -cne "version 0.4.4" -or $Lines[2] -cne "platform windows $Arch") {
     throw "offline package version, platform, or manifest format mismatch"
   }
   [long]$Total = 0
@@ -569,7 +592,7 @@ function Restore-AgentBootstrapTransaction(
       if (Test-Path -LiteralPath $FailedTarget) {
         throw "failed-target evidence path already exists"
       }
-      [IO.Directory]::Move($Target, $FailedTarget)
+      Move-AgentBootstrapDirectory $Target $FailedTarget
     } catch {
       $Problems.Add("could not deactivate failed target: $($_.Exception.Message)")
     }
@@ -582,7 +605,7 @@ function Restore-AgentBootstrapTransaction(
       if (Test-Path -LiteralPath $Target) {
         throw "failed target still occupies the managed path"
       }
-      [IO.Directory]::Move($Previous, $Target)
+      Move-AgentBootstrapDirectory $Previous $Target
     } catch {
       $Problems.Add("could not restore previous target: $($_.Exception.Message)")
     }
@@ -619,9 +642,9 @@ function Invoke-AgentBootstrap {
   $ErrorActionPreference = "Stop"
   $RepositoryUrl = "https://github.com/Schyler0427/image2-mcp.git"
   $RepositorySlug = "Schyler0427/image2-mcp"
-  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0"
-  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.zip"
-  $SourceRoot = "image2-mcp-0.4.0"
+  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4"
+  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.4.zip"
+  $SourceRoot = "image2-mcp-0.4.4"
   $BaseUrl = "https://api.schyler.top"
   $RequiredAssets = @(
     "image2-mcp_darwin_arm64.tar.gz",
@@ -673,7 +696,7 @@ function Invoke-AgentBootstrap {
         $Release = Invoke-AgentBootstrapMetadata $ReleaseApi
         Assert-AgentBootstrapRelease $Release $RequiredAssets
       } catch {
-        throw "public v0.4.0 Release gate failed: $($_.Exception.Message)"
+        throw "public v0.4.4 Release gate failed: $($_.Exception.Message)"
       }
     }
 
@@ -715,10 +738,10 @@ function Invoke-AgentBootstrap {
     if ($Repeat) {
       $BackupRoot = New-AgentBootstrapDirectory $Parent "image2-mcp.backup."
       $OldMoveIntent = $true
-      [IO.Directory]::Move($Target, (Join-Path $BackupRoot "previous"))
+      Move-AgentBootstrapDirectory $Target (Join-Path $BackupRoot "previous")
     }
     $NewMoveIntent = $true
-    [IO.Directory]::Move($StagePath, $Target)
+    Move-AgentBootstrapDirectory $StagePath $Target
 
     Write-Host "Installing platform binary..."
     Invoke-AgentBootstrapInstaller (Join-Path $Target "install.ps1") $RepositorySlug $Offline

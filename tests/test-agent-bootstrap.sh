@@ -18,7 +18,7 @@ mkdir -p "$fakebin" "$tmp/sources"
 release_json="$tmp/release.json"
 cat >"$release_json" <<'JSON'
 {
-  "tag_name": "v0.4.0",
+  "tag_name": "v0.4.4",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 case "$url" in
-  https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0)
+  https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4)
     status="${BOOTSTRAP_FIXTURE_RELEASE_API_STATUS:-200}"
     case "$status" in
       network|timeout)
@@ -67,7 +67,7 @@ case "$url" in
     esac
     cp "$BOOTSTRAP_FIXTURE_RELEASE_JSON" "$out"
     ;;
-  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.tar.gz)
+  https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.4.tar.gz)
     if [[ -n "${BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER:-}" ]]; then
       : >"$BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER"
     fi
@@ -166,7 +166,7 @@ chmod +x "$fakebin/rm"
 
 make_source_archive() {
   local name="$1" version="$2" mode="${3:-ok}" tree archive
-  tree="$tmp/sources/$name/image2-mcp-0.4.0"
+  tree="$tmp/sources/$name/image2-mcp-0.4.4"
   archive="$tmp/sources/$name.tar.gz"
   mkdir -p "$tree/scripts"
   printf 'module fixture\n' >"$tree/go.mod"
@@ -224,7 +224,7 @@ INSTALL
       rm -f "$tree/scripts/run-image2-mcp.sh"
       ;;
   esac
-  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.4.0
+  tar -czf "$archive" -C "$tmp/sources/$name" image2-mcp-0.4.4
   printf '%s\n' "$archive"
 }
 
@@ -233,10 +233,10 @@ make_canonical_duplicate_archive() {
   local archive="$tmp/sources/canonical-duplicate.tar.gz"
   local file_tree="$tmp/sources/canonical-file" directory_tree="$tmp/sources/canonical-directory"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$file_tree/image2-mcp-0.4.0" "$directory_tree/image2-mcp-0.4.0/canonical-path"
-  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.4.0/canonical-path"
-  tar -rf "$plain" -C "$file_tree" image2-mcp-0.4.0/canonical-path
-  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.4.0/canonical-path
+  mkdir -p "$file_tree/image2-mcp-0.4.4" "$directory_tree/image2-mcp-0.4.4/canonical-path"
+  printf 'file at canonical path\n' >"$file_tree/image2-mcp-0.4.4/canonical-path"
+  tar -rf "$plain" -C "$file_tree" image2-mcp-0.4.4/canonical-path
+  tar -rf "$plain" -C "$directory_tree" image2-mcp-0.4.4/canonical-path
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -245,9 +245,9 @@ make_repeated_slash_archive() {
   local base_archive="$1" plain="$tmp/sources/repeated-slash.tar"
   local archive="$tmp/sources/repeated-slash.tar.gz" tree="$tmp/sources/repeated-slash"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$tree/image2-mcp-0.4.0/repeated"
-  printf 'repeated slash path\n' >"$tree/image2-mcp-0.4.0/repeated/path.txt"
-  tar -rf "$plain" -C "$tree" image2-mcp-0.4.0//repeated/path.txt
+  mkdir -p "$tree/image2-mcp-0.4.4/repeated"
+  printf 'repeated slash path\n' >"$tree/image2-mcp-0.4.4/repeated/path.txt"
+  tar -rf "$plain" -C "$tree" image2-mcp-0.4.4//repeated/path.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -257,11 +257,11 @@ make_case_ambiguous_archive() {
   local archive="$tmp/sources/case-ambiguous.tar.gz"
   local upper_tree="$tmp/sources/case-upper" lower_tree="$tmp/sources/case-lower"
   gzip -dc "$base_archive" >"$plain"
-  mkdir -p "$upper_tree/image2-mcp-0.4.0" "$lower_tree/image2-mcp-0.4.0"
-  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.4.0/CasePath.txt"
-  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.4.0/casepath.txt"
-  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.4.0/CasePath.txt
-  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.4.0/casepath.txt
+  mkdir -p "$upper_tree/image2-mcp-0.4.4" "$lower_tree/image2-mcp-0.4.4"
+  printf 'upper case path\n' >"$upper_tree/image2-mcp-0.4.4/CasePath.txt"
+  printf 'lower case path\n' >"$lower_tree/image2-mcp-0.4.4/casepath.txt"
+  tar -rf "$plain" -C "$upper_tree" image2-mcp-0.4.4/CasePath.txt
+  tar -rf "$plain" -C "$lower_tree" image2-mcp-0.4.4/casepath.txt
   gzip -c "$plain" >"$archive"
   printf '%s\n' "$archive"
 }
@@ -376,7 +376,7 @@ case_ambiguous_archive="$(make_case_ambiguous_archive "$v1_archive")"
 
 # A local payload uses its bundled binary without network calls.
 offline_payload="$tmp/offline-payload"
-cp -R "$tmp/sources/v1/image2-mcp-0.4.0" "$offline_payload"
+cp -R "$tmp/sources/v1/image2-mcp-0.4.4" "$offline_payload"
 mkdir -p "$offline_payload/dist"
 cat >"$offline_payload/dist/image2-mcp" <<'BIN'
 #!/usr/bin/env bash
@@ -385,7 +385,7 @@ cat >"$offline_payload/dist/image2-mcp" <<'BIN'
 [[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" ]] || exit 93
 case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
 case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
-printf 'image2-mcp 0.4.3 offline-v1 %s %s\n' "$os" "$arch"
+printf 'image2-mcp 0.4.4 offline-v1 %s %s\n' "$os" "$arch"
 BIN
 chmod +x "$offline_payload/dist/image2-mcp"
 rm "$offline_payload/version.txt"
@@ -401,7 +401,7 @@ write_offline_manifest() {
     *) manifest_arch=amd64 ;;
   esac
   {
-    printf 'IMAGE2_MCP_OFFLINE 1\nversion 0.4.3\nplatform %s %s\n' "$manifest_os" "$manifest_arch"
+    printf 'IMAGE2_MCP_OFFLINE 1\nversion 0.4.4\nplatform %s %s\n' "$manifest_os" "$manifest_arch"
     for path in "${offline_paths[@]}"; do
       hash="$(shasum -a 256 "$package/$path" | awk '{print $1}')"
       bytes="$(wc -c < "$package/$path" | tr -d '[:space:]')"
@@ -536,7 +536,7 @@ assert_api_request() {
   local log="$1" expected_count="$2" first
   [[ "$(wc -l <"$log" | tr -d '[:space:]')" -eq "$expected_count" ]] || fail 'unexpected request count (retry or fallback)'
   first="$(sed -n '1p' "$log")"
-  [[ "$first" == *'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.0'* ]] || fail 'first request was not the fixed Release API'
+  [[ "$first" == *'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4'* ]] || fail 'first request was not the fixed Release API'
   [[ "$first" == *'--connect-timeout 5 --max-time 15'* ]] || fail 'metadata timeout is not bounded'
   [[ "$first" == '-q '* && "$first" == *'--retry 0'* ]] || fail 'curl configuration can enable automatic retries'
   [[ "$first" != *'-fL'* && "$first" != *'--location'* ]] || fail 'metadata request can follow redirects'
@@ -547,7 +547,7 @@ assert_api_request "$api_only_network" 2
 source_request="$(sed -n '2p' "$api_only_network")"
 [[ "$source_request" == '-q -fL '* && "$source_request" == *'--retry 0'* ]] ||
   fail 'source download must ignore curlrc retries and preserve GitHub redirects'
-grep -Fq -- '--connect-timeout 10 --max-time 60 --retry 0 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.0.tar.gz' \
+grep -Fq -- '--connect-timeout 10 --max-time 60 --retry 0 https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.4.tar.gz' \
   "$api_only_network" || fail 'source timeout is not bounded'
 
 # Failures stop before source download, key input, or any existing target/config mutation.
@@ -600,7 +600,7 @@ for field in draft prerelease; do
   assert_release_refusal "$field" "$invalid_json" 200 'Release gate failed'
 done
 invalid_json="$tmp/release-wrong-tag.json"
-sed 's/"tag_name": "v0.4.0"/"tag_name": "wrong-tag"/' "$release_json" >"$invalid_json"
+sed 's/"tag_name": "v0.4.4"/"tag_name": "wrong-tag"/' "$release_json" >"$invalid_json"
 assert_release_refusal wrong-tag "$invalid_json" 200 'Release gate failed'
 invalid_json="$tmp/release-malformed.json"
 printf '{invalid JSON\n' >"$invalid_json"
