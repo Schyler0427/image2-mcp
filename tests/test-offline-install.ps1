@@ -132,7 +132,7 @@ function Assert-UnrelatedMcp {
 Assert-True ($env:OS -eq "Windows_NT" -and $PSVersionTable.PSEdition -eq "Desktop") "run this test in Windows PowerShell 5.1"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $PowerShell = (Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source
-$Go = (Get-Command go.exe -CommandType Application -ErrorAction Stop).Source
+$Go = (Get-Command go.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $NativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 $Arch = switch ($NativeArchitecture.ToUpperInvariant()) {
   "ARM64" { "arm64" }
