@@ -244,6 +244,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True (-not (Test-Path $EnvFile)) "-KeyOnly -Help wrote .env.local"
 
   $Secret = 'sk-test-do-not-print'
+  $GeminiSecret = 'gemini-test-do-not-print'
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_EXPECTED_API_KEY", $Secret, "Process")
   # Seed an offline binary directly; no online installation has run yet.
   New-Item -ItemType Directory -Force -Path (Join-Path $Repo "dist") | Out-Null
