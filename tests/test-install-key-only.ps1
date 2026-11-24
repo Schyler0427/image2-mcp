@@ -656,6 +656,14 @@ public static class __FAKE_GO_TYPE__ {
     }
     $env:OPENAI_IMAGE_API_KEY = "advanced-image"
     $env:GEMINI_IMAGE_API_KEY = "advanced-gemini"
+    if ($AdvancedMode -eq "existing-smoke") {
+      [IO.File]::WriteAllText($EnvFile, @'
+OPENAI_IMAGE_BASE_URL="https://api.schyler.top"
+OPENAI_IMAGE_API_KEY="advanced-image"
+GEMINI_IMAGE_BASE_URL="https://api.schyler.top"
+GEMINI_IMAGE_API_KEY="advanced-gemini"
+'@, (New-Object Text.UTF8Encoding($false)))
+    }
     $AdvancedInput = "`r`nadvanced-image`r`nadvanced-gemini`r`n"
     $AdvancedResult = Invoke-TestInstaller -InstallerArgs $AdvancedArgs -InputText $AdvancedInput
     Assert-True ($AdvancedResult.ExitCode -eq 0) "advanced $AdvancedMode install exposed credentials or failed: $($AdvancedResult.Output)"
