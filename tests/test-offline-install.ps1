@@ -72,7 +72,17 @@ function Invoke-TestChild(
   $Started = $false
   $Completed = $false
   try {
-    $Started = $Process.Start()
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
+      throw "test executable is missing: $Executable"
+    }
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+      throw "test working directory is missing: $Root"
+    }
+    try {
+      $Started = $Process.Start()
+    } catch {
+      throw "could not start test child '$Executable' in '$Root': $($_.Exception.Message)"
+    }
     $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
     $StderrTask = $Process.StandardError.ReadToEndAsync()
     # The harmless Key goes only to attached stdin, never an argument, inherited
