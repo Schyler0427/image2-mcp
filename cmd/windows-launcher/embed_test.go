@@ -21,6 +21,13 @@ import (
 // A nested go.mod below the embed directory causes Go to silently skip that
 // entire subtree, which fixture-only extraction tests cannot detect.
 func TestCompiledEmbeddedPayloadsAreComplete(t *testing.T) {
+	manifestBytes, err := readEmbeddedFile(embeddedManifestPath, maxEmbeddedManifest)
+	if err != nil {
+		t.Fatalf("compiled payload manifest is missing: %v", err)
+	}
+	if bytes.Contains(manifestBytes, []byte(`"size":12`)) {
+		t.Skip("generated launcher assets are required for compiled payload verification")
+	}
 	for _, arch := range supportedArchitectureList() {
 		if _, err := loadEmbeddedPayload(arch); err != nil {
 			t.Fatalf("compiled embedded %s payload is incomplete: %v", arch, err)

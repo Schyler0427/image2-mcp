@@ -253,7 +253,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Copy-Item -LiteralPath (Join-Path $Payload "image2-mcp.exe") -Destination $OfflineFixtureBinary -Force
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_FORBID_DOWNLOAD", "1", "Process")
   try {
-    $Offline = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-Offline") -InputText ($Secret + "`r`n")
+    $Offline = Invoke-TestInstaller -InstallerArgs @("-KeyOnly", "-Offline") -InputText ($Secret + "`r`n`r`n")
     Assert-True ($Offline.ExitCode -eq 0) "offline installer failed: $($Offline.Output)"
     Assert-True ($Offline.Output.Contains("Verification: OK")) "offline verification marker missing"
     Assert-True (-not $Offline.Output.Contains($Secret)) "offline installer leaked API Key"
@@ -292,7 +292,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   $ManagedEnvHash = Get-FileFingerprint $EnvFile
   try {
     # A managed repeat must prompt for a separately supplied Image2 key.
-    $ManagedRepeat = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+    $ManagedRepeat = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
     Assert-True ($ManagedRepeat.ExitCode -eq 0) "managed repeat install failed: $($ManagedRepeat.Output)"
     Assert-True (-not $ManagedRepeat.Output.Contains("reusing it")) "managed repeat reused the existing key"
     Assert-True ($ManagedRepeat.Output.Contains("OPENAI_IMAGE_API_KEY:")) "managed repeat did not prompt for Image2 key"
@@ -321,7 +321,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
 
   foreach ($Mode in @("no-marker", "near-marker", "stderr-marker", "nonzero")) {
     [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_MODE", $Mode, "Process")
-    $VerificationFailure = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+    $VerificationFailure = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
     Assert-True ($VerificationFailure.ExitCode -ne 0) "verification mode $Mode unexpectedly succeeded"
     Assert-True ($VerificationFailure.Output.Contains("runner MCP verification failed")) "verification mode $Mode error is unclear"
     Assert-True (-not $VerificationFailure.Output.Contains("Verification: OK")) "verification mode $Mode reported success"
@@ -333,7 +333,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_VERIFY_PIDS", $VerificationPids, "Process")
   $VerificationTimer = [Diagnostics.Stopwatch]::StartNew()
   try {
-    $VerificationTimeout = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+    $VerificationTimeout = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
     Assert-True ($VerificationTimeout.ExitCode -ne 0) "hanging verification unexpectedly succeeded"
     Assert-True ($VerificationTimeout.Output.Contains("runner MCP verification timed out after 20 seconds")) "verification timeout error is unclear"
     Assert-True (-not $VerificationTimeout.Output.Contains("Verification: OK")) "timed-out verification reported success"
@@ -361,7 +361,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Compress-Archive -Path (Join-Path $Payload "image2-mcp.exe"), $BadExtra -DestinationPath $BadFixture
   $BinaryHashBefore = (Get-FileHash (Join-Path $Repo "dist\image2-mcp.exe") -Algorithm SHA256).Hash
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", $BadFixture, "Process")
-  $BadResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  $BadResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
   Assert-True ($BadResult.ExitCode -ne 0) "multi-entry prebuilt ZIP unexpectedly succeeded"
   Assert-True ($BadResult.Output.Contains("prebuilt archive must contain exactly one image2-mcp.exe file")) "multi-entry prebuilt ZIP error is unclear"
   Assert-True (((Get-FileHash (Join-Path $Repo "dist\image2-mcp.exe") -Algorithm SHA256).Hash) -eq $BinaryHashBefore) "multi-entry prebuilt ZIP changed the binary"
@@ -492,7 +492,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   $BinaryFile = Join-Path $Repo "dist\image2-mcp.exe"
   $BinaryHash = (Get-FileHash $BinaryFile -Algorithm SHA256).Hash
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", (Join-Path $TempRoot "missing.zip"), "Process")
-  $DownloadFailure = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  $DownloadFailure = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
   Assert-True ($DownloadFailure.ExitCode -ne 0) "missing Release fixture unexpectedly succeeded"
   Assert-True (((Get-FileHash $BinaryFile -Algorithm SHA256).Hash) -eq $BinaryHash) "failed download replaced working binary"
 
@@ -505,7 +505,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   [Environment]::SetEnvironmentVariable("USERPROFILE", $ArrayHome, "Process")
   [Environment]::SetEnvironmentVariable("IMAGE2_MCP_TEST_RELEASE_ZIP", $Fixture, "Process")
   $ArrayHash = (Get-FileHash $ArrayConfig -Algorithm SHA256).Hash
-  $ArrayResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  $ArrayResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
   Assert-True ($ArrayResult.ExitCode -ne 0) "Image2 array table unexpectedly succeeded"
   Assert-True ($ArrayResult.Output.Contains("unsupported Image2 TOML table header")) "array-table error is unclear"
   Assert-True (((Get-FileHash $ArrayConfig -Algorithm SHA256).Hash) -eq $ArrayHash) "array-table config changed"
@@ -527,7 +527,7 @@ command = "C:\keep\image20-runner.exe"
 '@, (New-Object Text.UTF8Encoding($false)))
   [Environment]::SetEnvironmentVariable("HOME", $SpacedHome, "Process")
   [Environment]::SetEnvironmentVariable("USERPROFILE", $SpacedHome, "Process")
-  $SpacedResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  $SpacedResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
   Assert-True ($SpacedResult.ExitCode -eq 0) "spaced Image2 tables were not replaced"
   $SpacedText = [IO.File]::ReadAllText($SpacedConfig)
   Assert-True (-not $SpacedText.Contains('C:\spaced\old-runner.ps1')) "spaced Image2 root config remains"
@@ -544,7 +544,7 @@ command = "C:\quoted\old-runner.ps1"
   [Environment]::SetEnvironmentVariable("HOME", $QuotedHome, "Process")
   [Environment]::SetEnvironmentVariable("USERPROFILE", $QuotedHome, "Process")
   $QuotedHash = (Get-FileHash $QuotedConfig -Algorithm SHA256).Hash
-  $QuotedResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  $QuotedResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
   Assert-True ($QuotedResult.ExitCode -ne 0) "quoted Image2 table unexpectedly succeeded"
   Assert-True ($QuotedResult.Output.Contains("unsupported Image2 TOML table header")) "quoted Image2 table error is unclear"
   Assert-True (((Get-FileHash $QuotedConfig -Algorithm SHA256).Hash) -eq $QuotedHash) "quoted Image2 config changed"
@@ -559,7 +559,7 @@ command = "C:\quoted\old-runner.ps1"
     $BinaryFingerprint = Get-FileFingerprint $BinaryFile
     [Environment]::SetEnvironmentVariable("HOME", $ConflictHome, "Process")
     [Environment]::SetEnvironmentVariable("USERPROFILE", $ConflictHome, "Process")
-    $Result = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+    $Result = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
     Assert-True ($Result.ExitCode -ne 0) "conflicting Image2 TOML assignment $Name unexpectedly succeeded"
     Assert-True ($Result.Output.Contains("unsupported conflicting Image2 TOML assignment")) "conflicting Image2 TOML assignment $Name error is unclear"
     Assert-True (-not $Result.Output.Contains("old")) "conflicting Image2 TOML assignment $Name exposed config content"
@@ -600,7 +600,7 @@ mcp_servers.keep.command = "ok"
 '@, (New-Object Text.UTF8Encoding($false)))
   [Environment]::SetEnvironmentVariable("HOME", $SiblingAssignmentHome, "Process")
   [Environment]::SetEnvironmentVariable("USERPROFILE", $SiblingAssignmentHome, "Process")
-  $SiblingAssignmentResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n")
+  $SiblingAssignmentResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
   Assert-True ($SiblingAssignmentResult.ExitCode -eq 0) "root dotted sibling assignments were not accepted"
   Assert-True ($SiblingAssignmentResult.Output.Contains("Verification: OK")) "root dotted sibling verification marker missing"
   $SiblingAssignmentLines = [IO.File]::ReadAllLines($SiblingAssignmentConfig)

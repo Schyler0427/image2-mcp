@@ -37,6 +37,9 @@ jobs:
           bash tests/test-offline-package.sh
           bash tests/test-offline-install.sh
           bash tests/test-universal-launcher.sh
+      - name: Test generated universal launcher payloads
+        if: runner.os == 'Linux'
+        run: bash scripts/build-universal-windows-launcher.sh --output "$RUNNER_TEMP/universal-launcher"
       - name: Test Windows PowerShell 5.1 installers
         if: runner.os == 'Windows'
         shell: powershell
