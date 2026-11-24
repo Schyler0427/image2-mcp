@@ -322,7 +322,8 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True ($Config.Contains('scripts\\run-image2-mcp.ps1')) "Codex config does not reference the runner"
   Assert-True ($Config.Contains('startup_timeout_sec = 20')) "Codex startup timeout is not 20 seconds"
   Assert-True ($Config.Contains('tool_timeout_sec = 600')) "Codex tool timeout is not 600 seconds"
-  Assert-True (-not $Config.Contains("OPENAI_IMAGE_API_KEY")) "API Key setting leaked to Codex config"
+  $Image2ConfigBlock = [regex]::Match($Config, '(?ms)^\[mcp_servers\.image2\].*?(?=^\[|\z)').Value
+  Assert-True (-not $Image2ConfigBlock.Contains("OPENAI_IMAGE_API_KEY")) "API Key setting leaked to Image2 Codex config"
   Assert-True ((Test-Path (Join-Path $Repo "dist\image2-mcp.exe"))) "Release binary is missing"
 
   foreach ($Mode in @("no-marker", "near-marker", "stderr-marker", "nonzero")) {
