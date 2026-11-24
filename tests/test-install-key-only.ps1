@@ -654,8 +654,8 @@ public static class __FAKE_GO_TYPE__ {
     if ($AdvancedMode -eq "ambient-source") {
       Remove-Item -Force -ErrorAction SilentlyContinue $EnvFile, (Join-Path $Repo ".env")
     }
-    $env:OPENAI_IMAGE_API_KEY = "ambient-image"
-    $env:GEMINI_IMAGE_API_KEY = "ambient-gemini"
+    $env:OPENAI_IMAGE_API_KEY = "advanced-image"
+    $env:GEMINI_IMAGE_API_KEY = "advanced-gemini"
     $AdvancedInput = "`r`nadvanced-image`r`nadvanced-gemini`r`n"
     $AdvancedResult = Invoke-TestInstaller -InstallerArgs $AdvancedArgs -InputText $AdvancedInput
     Assert-True ($AdvancedResult.ExitCode -eq 0) "advanced $AdvancedMode install exposed credentials or failed: $($AdvancedResult.Output)"
