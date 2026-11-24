@@ -298,7 +298,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   $ManagedEnvHash = Get-FileFingerprint $EnvFile
   try {
     # A managed repeat must prompt for a separately supplied Image2 key.
-    $ManagedRepeat = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
+    $ManagedRepeat = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`nignored-second-line`r`n")
     Assert-True ($ManagedRepeat.ExitCode -eq 0) "managed repeat install failed: $($ManagedRepeat.Output)"
     Assert-True (-not $ManagedRepeat.Output.Contains("reusing it")) "managed repeat reused the existing key"
     Assert-True ($ManagedRepeat.Output.Contains("OPENAI_IMAGE_API_KEY:")) "managed repeat did not prompt for Image2 key"
