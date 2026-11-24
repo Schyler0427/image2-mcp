@@ -172,8 +172,14 @@ function Invoke-WebRequest {
   if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
     throw "fixture download did not preserve TLS"
   }
-  # The runner imports .env.local again, hiding an installer-side key reset.
-  # Check the real installer environment before that second import can occur.
+  # Key-only downloads run inside an isolated child environment. Check the
+  # saved installation file instead of requiring the child to retain a secret
+  # in its process environment.
+  $SavedEnv = Join-Path (Split-Path -Parent $env:IMAGE2_MCP_TEST_INSTALLER) ".env.local"
+  if (-not (Test-Path -LiteralPath $SavedEnv)) {
+    throw "installer did not save the expected API Key before binary download"
+  }
+  Import-DotEnv $SavedEnv
   if ($env:OPENAI_IMAGE_API_KEY -cne $env:IMAGE2_MCP_TEST_EXPECTED_API_KEY) {
     throw "installer did not preserve the expected API Key before binary download"
   }
