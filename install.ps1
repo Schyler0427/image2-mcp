@@ -268,7 +268,7 @@ function Install-Prebuilt {
   $Arch = Get-ArchName
   $Asset = "image2-mcp_windows_${Arch}.zip"
   $Url = if ($KeyOnly) {
-    "https://github.com/${Repo}/releases/download/v0.4.4/${Asset}"
+    "https://github.com/${Repo}/releases/download/v0.4.5/${Asset}"
   } else {
     "https://github.com/${Repo}/releases/latest/download/${Asset}"
   }
@@ -544,6 +544,70 @@ function Remove-Image2ConfigNamespace([string[]]$Lines) {
   return $Output.ToArray()
 }
 
+function Test-FeaturesTableHeader([string]$Line) {
+  return $Line -match '^\s*\[\s*features\s*\]\s*(?:#.*)?$'
+}
+
+function Set-CodexDisableBuiltinImageGeneration([string[]]$Lines) {
+  $Working = New-Object System.Collections.Generic.List[string]
+  foreach ($Line in $Lines) {
+    $Working.Add($Line)
+  }
+  $InRoot = $true
+  $InFeatures = $false
+  $HasFeaturesTable = $false
+  $FeaturesHeaderIndex = -1
+  $HasRootFeaturesDotted = $false
+  $LastRootFeaturesIndex = -1
+  $Handled = $false
+
+  for ($Index = 0; $Index -lt $Working.Count; $Index++) {
+    $Line = $Working[$Index]
+    if ((Test-TomlTableHeader $Line) -or (Test-TomlArrayTableHeader $Line)) {
+      $InRoot = $false
+      if (Test-FeaturesTableHeader $Line) {
+        $InFeatures = $true
+        if (-not $HasFeaturesTable) {
+          $HasFeaturesTable = $true
+          $FeaturesHeaderIndex = $Index
+        }
+      } else {
+        $InFeatures = $false
+      }
+      continue
+    }
+    if ($InRoot) {
+      if ($Line -match '^\s*features\s*\.\s*image_generation\s*=') {
+        $Working[$Index] = 'features.image_generation = false'
+        $Handled = $true
+      } elseif ($Line -match '^\s*features\s*\.\s*[A-Za-z0-9_-]+\s*=') {
+        $HasRootFeaturesDotted = $true
+        $LastRootFeaturesIndex = $Index
+      }
+    } elseif ($InFeatures) {
+      if ($Line -match '^\s*image_generation\s*=') {
+        $Working[$Index] = 'image_generation = false'
+        $Handled = $true
+      }
+    }
+  }
+
+  if (-not $Handled) {
+    if ($HasFeaturesTable) {
+      $Working.Insert($FeaturesHeaderIndex + 1, 'image_generation = false')
+    } elseif ($HasRootFeaturesDotted) {
+      $Working.Insert($LastRootFeaturesIndex + 1, 'features.image_generation = false')
+    } else {
+      if ($Working.Count -gt 0) {
+        $Working.Add("")
+      }
+      $Working.Add("[features]")
+      $Working.Add("image_generation = false")
+    }
+  }
+  return $Working.ToArray()
+}
+
 function ConvertTo-TomlBasicString([string]$Value) {
   return $Value.Replace('\', '\\').Replace('"', '\"')
 }
@@ -553,7 +617,7 @@ function Set-Image2CodexConfig([string]$ConfigFile) {
   Assert-SupportedImage2ConfigHeaders $Lines $ConfigFile
   Assert-SupportedImage2ConfigAssignments $Lines
   $Output = New-Object System.Collections.Generic.List[string]
-  foreach ($Line in (Remove-Image2ConfigNamespace $Lines)) {
+  foreach ($Line in (Set-CodexDisableBuiltinImageGeneration (Remove-Image2ConfigNamespace $Lines))) {
     $Output.Add($Line)
   }
   $Runner = ConvertTo-TomlBasicString (Join-Path $RepoDir "scripts\run-image2-mcp.ps1")
@@ -572,6 +636,9 @@ function Set-Image2CodexConfig([string]$ConfigFile) {
     $Generated = [IO.File]::ReadAllText($Temp)
     if (([regex]::Matches($Generated, '(?m)^\[mcp_servers\.image2\]\r?$')).Count -ne 1) {
       throw "generated Codex config does not contain exactly one Image2 root table"
+    }
+    if ($Generated -notmatch '(?m)^\s*(?:features\s*\.\s*)?image_generation\s*=\s*false\r?$') {
+      throw "generated Codex config did not disable built-in image_generation"
     }
     # The existing Image2 namespace is removed before this static block is
     # appended. Other MCP providers may legitimately configure their own keys.
@@ -700,6 +767,9 @@ function Test-KeyOnlyInstall {
   }
   $ConfigText = [IO.File]::ReadAllText($Config)
   if (([regex]::Matches($ConfigText, '(?m)^\[mcp_servers\.image2\]\r?$')).Count -ne 1) {
+    throw "Codex config verification failed"
+  }
+  if ($ConfigText -notmatch '(?m)^\s*(?:features\s*\.\s*)?image_generation\s*=\s*false\r?$') {
     throw "Codex config verification failed"
   }
   $ExpectedRunner = ConvertTo-TomlBasicString $Runner

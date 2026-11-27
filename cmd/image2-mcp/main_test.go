@@ -15,8 +15,8 @@ import (
 )
 
 func TestServerVersion(t *testing.T) {
-	if serverVersion != "0.4.4" {
-		t.Fatalf("serverVersion = %q, want 0.4.4", serverVersion)
+	if serverVersion != "0.4.5" {
+		t.Fatalf("serverVersion = %q, want 0.4.5", serverVersion)
 	}
 }
 

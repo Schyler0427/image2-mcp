@@ -1,8 +1,8 @@
 {
-  "version": "0.4.4",
+  "version": "0.4.5",
   "published_at": "2026-10-27T00:00:00Z",
   "notes": "Describe the launcher and embedded MCP changes.",
-  "asset_url": "https://api.schyler.top/image2/releases/0.4.4/SchylerAI-Image2-mcp.exe",
+  "asset_url": "https://api.schyler.top/image2/releases/0.4.5/SchylerAI-Image2-mcp.exe",
   "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "size": 1,
   "signature": "",

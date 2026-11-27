@@ -98,7 +98,7 @@ using System.Threading;
 public static class Program {
   public static int Main(string[] args) {
     if (args.Length == 1 && args[0] == "--version") {
-      Console.WriteLine("image2-mcp 0.4.4 offline-v1 windows __ARCH__");
+      Console.WriteLine("image2-mcp 0.4.5 offline-v1 windows __ARCH__");
       return 0;
     }
     bool baseUrlMatches = String.Equals(
@@ -290,7 +290,7 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True ($Result.Output.Contains("Verification: OK")) "verification marker missing"
   Assert-True (-not $Result.Output.Contains($Secret)) "API Key leaked to output"
   Assert-True ($Result.Output.Contains("image2-mcp_windows_")) "Release asset name was not reported"
-  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.4/")) "Release tag is not fixed"
+  Assert-True ($Result.Output.Contains("https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.5/")) "Release tag is not fixed"
   Assert-True ($Result.Output.Contains("Base URL: https://api.schyler.top")) "reported base URL is not fixed"
   Assert-True (-not $Result.Output.Contains("legacy-key-must-not-win")) "legacy API Key leaked to output"
 
@@ -323,6 +323,8 @@ OPENAI_IMAGE_API_KEY="legacy-key-must-not-win"
   Assert-True ($Config.Contains('scripts\\run-image2-mcp.ps1')) "Codex config does not reference the runner"
   Assert-True ($Config.Contains('startup_timeout_sec = 20')) "Codex startup timeout is not 20 seconds"
   Assert-True ($Config.Contains('tool_timeout_sec = 600')) "Codex tool timeout is not 600 seconds"
+  Assert-True (([regex]::Matches($Config, '(?m)^\[features\]\r?$')).Count -eq 1) "Codex [features] table count is not 1"
+  Assert-True (([regex]::Matches($Config, '(?m)^image_generation = false\r?$')).Count -eq 1) "Codex built-in image_generation was not disabled"
   $Image2ConfigBlock = [regex]::Match($Config, '(?ms)^\[mcp_servers\.image2\].*?(?=^\[|\z)').Value
   Assert-True (-not $Image2ConfigBlock.Contains("OPENAI_IMAGE_API_KEY")) "API Key setting leaked to Image2 Codex config"
   Assert-True ((Test-Path (Join-Path $Repo "dist\image2-mcp.exe"))) "Release binary is missing"
@@ -614,6 +616,59 @@ mcp_servers.keep.command = "ok"
   $SiblingAssignmentLines = [IO.File]::ReadAllLines($SiblingAssignmentConfig)
   Assert-True ($SiblingAssignmentLines -ccontains 'mcp_servers.keep.command = "ok"') "root dotted sibling assignment was not preserved"
   Assert-True ($SiblingAssignmentLines -ccontains '"mcp_servers" . "keep-quoted" . command = "quoted ok"') "quoted root dotted sibling assignment was not preserved"
+
+  $FeaturesExistingHome = Join-Path $TempRoot "features-existing-home"
+  $FeaturesExistingConfig = Join-Path $FeaturesExistingHome ".codex\config.toml"
+  New-Item -ItemType Directory -Force -Path (Join-Path $FeaturesExistingHome ".codex") | Out-Null
+  [IO.File]::WriteAllText($FeaturesExistingConfig, @'
+[features]
+multi_agent = true
+image_generation = true # previously enabled
+
+[mcp_servers.keep]
+command = "C:\keep\runner.exe"
+image_generation = true
+'@, (New-Object Text.UTF8Encoding($false)))
+  [Environment]::SetEnvironmentVariable("HOME", $FeaturesExistingHome, "Process")
+  [Environment]::SetEnvironmentVariable("USERPROFILE", $FeaturesExistingHome, "Process")
+  $FeaturesExistingResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
+  Assert-True ($FeaturesExistingResult.ExitCode -eq 0) "existing [features] install failed: $($FeaturesExistingResult.Output)"
+  $FeaturesExistingText = [IO.File]::ReadAllText($FeaturesExistingConfig)
+  Assert-True ($FeaturesExistingText.Contains('multi_agent = true')) "existing [features] sibling setting was lost"
+  Assert-True (([regex]::Matches($FeaturesExistingText, '(?m)^\[features\]\r?$')).Count -eq 1) "existing [features] table was duplicated"
+  Assert-True (([regex]::Matches($FeaturesExistingText, '(?m)^image_generation = false\r?$')).Count -eq 1) "existing [features] image_generation was not set to false"
+  Assert-True (([regex]::Matches($FeaturesExistingText, '(?m)^image_generation = true\r?$')).Count -eq 1) "unrelated table image_generation setting was modified"
+
+  $FeaturesInsertHome = Join-Path $TempRoot "features-insert-home"
+  $FeaturesInsertConfig = Join-Path $FeaturesInsertHome ".codex\config.toml"
+  New-Item -ItemType Directory -Force -Path (Join-Path $FeaturesInsertHome ".codex") | Out-Null
+  [IO.File]::WriteAllText($FeaturesInsertConfig, @'
+[features]
+multi_agent = true
+'@, (New-Object Text.UTF8Encoding($false)))
+  [Environment]::SetEnvironmentVariable("HOME", $FeaturesInsertHome, "Process")
+  [Environment]::SetEnvironmentVariable("USERPROFILE", $FeaturesInsertHome, "Process")
+  $FeaturesInsertResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
+  Assert-True ($FeaturesInsertResult.ExitCode -eq 0) "insert into [features] install failed: $($FeaturesInsertResult.Output)"
+  $FeaturesInsertText = [IO.File]::ReadAllText($FeaturesInsertConfig)
+  Assert-True ($FeaturesInsertText.Contains('multi_agent = true')) "insert [features] sibling setting was lost"
+  Assert-True (([regex]::Matches($FeaturesInsertText, '(?m)^\[features\]\r?$')).Count -eq 1) "insert [features] header was duplicated"
+  Assert-True (([regex]::Matches($FeaturesInsertText, '(?m)^image_generation = false\r?$')).Count -eq 1) "insert [features] did not disable image_generation"
+
+  $FeaturesDottedHome = Join-Path $TempRoot "features-dotted-home"
+  $FeaturesDottedConfig = Join-Path $FeaturesDottedHome ".codex\config.toml"
+  New-Item -ItemType Directory -Force -Path (Join-Path $FeaturesDottedHome ".codex") | Out-Null
+  [IO.File]::WriteAllText($FeaturesDottedConfig, @'
+features.image_generation = true
+model = "gpt-5"
+'@, (New-Object Text.UTF8Encoding($false)))
+  [Environment]::SetEnvironmentVariable("HOME", $FeaturesDottedHome, "Process")
+  [Environment]::SetEnvironmentVariable("USERPROFILE", $FeaturesDottedHome, "Process")
+  $FeaturesDottedResult = Invoke-TestInstaller -InstallerArgs @("-KeyOnly") -InputText ($Secret + "`r`n`r`n")
+  Assert-True ($FeaturesDottedResult.ExitCode -eq 0) "dotted features.image_generation install failed: $($FeaturesDottedResult.Output)"
+  $FeaturesDottedText = [IO.File]::ReadAllText($FeaturesDottedConfig)
+  Assert-True ($FeaturesDottedText.Contains('features.image_generation = false')) "dotted features.image_generation was not set to false"
+  Assert-True (-not $FeaturesDottedText.Contains('[features]')) "dotted features.image_generation unexpectedly added [features] table"
 
   # The advanced paths must not expose imported or ambient provider keys to
   # actual child processes. Only an explicit Image2 smoke invocation gets its key.

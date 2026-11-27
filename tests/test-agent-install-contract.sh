@@ -6,7 +6,7 @@ readme="$root/README.md"
 workflow="$root/.github/workflows/release.yml"
 windows_installer="$root/install.ps1"
 expected_release="v$(sed -n 's/^const serverVersion = "\([^"]*\)"/\1/p' "$root/cmd/image2-mcp/main.go")"
-published_release='v0.4.4'
+published_release='v0.4.5'
 for versioned_path in AGENT_INSTALL.md scripts/bootstrap-agent-install.sh scripts/bootstrap-agent-install.ps1; do
   actual_releases="$(grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' "$root/$versioned_path" | sort -u)"
   [[ "$actual_releases" == "$published_release" ]] || {
@@ -81,7 +81,7 @@ for scope_doc in "$readme" "$doc"; do
     exit 1
   }
   for required in \
-    'v0.4.4' \
+    'v0.4.5' \
     '完整离线包'; do
     grep -Fq "$required" "$scope_doc" || {
       echo "FAIL: $scope_doc does not explain source-checkout Key-only limitations: $required" >&2
@@ -90,7 +90,7 @@ for scope_doc in "$readme" "$doc"; do
   done
 done
 for required in \
-  'Key-only 模式直接下载固定 `v0.4.4` Release 的预编译二进制'; do
+  'Key-only 模式直接下载固定 `v0.4.5` Release 的预编译二进制'; do
   grep -Fq "$required" "$readme" || {
     echo "FAIL: README source-checkout Key-only instructions promise unsupported one-key installation: $required" >&2
     exit 1
@@ -114,7 +114,7 @@ if grep -Eiq 'gpt-image-2\.[056](-sunburst|-flare)?' "$readme" "$doc" "$root/OFF
   exit 1
 fi
 for customer_doc in README.md AGENT_INSTALL.md OFFLINE_INSTALL.md macos/README.md docs/launcher-release.md; do
-  for required in '0.4.3' '用2.6生图' '用2.6快速版生图' '生成动图' '做个GIF' '循环动图' 'v0.4.4'; do
+  for required in '0.4.3' '用2.6生图' '用2.6快速版生图' '生成动图' '做个GIF' '循环动图' 'v0.4.5'; do
     grep -Fq "$required" "$root/$customer_doc" || {
       echo "FAIL: $customer_doc missing local Image2.6/GIF or pinned online scope: $required" >&2
       exit 1
@@ -183,8 +183,8 @@ grep -Fq '$Security = Get-Acl -Path $Path' "$windows_installer" || {
   exit 1
 }
 for required in \
-  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4' \
-  'v0.4.4' \
+  'https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.5' \
+  'v0.4.5' \
   'image2-mcp_darwin_arm64.tar.gz' \
   'image2-mcp_darwin_amd64.tar.gz' \
   'image2-mcp_linux_arm64.tar.gz' \

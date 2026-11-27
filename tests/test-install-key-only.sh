@@ -45,7 +45,7 @@ if [[ "${1:-}" == --version ]]; then
   [[ -z "${OPENAI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_API_KEY:-}" && -z "${GEMINI_IMAGE_BASE_URL:-}" && -z "${GEMINI_IMAGE_MODEL:-}" ]] || exit 93
   case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; esac
   case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
-  echo "image2-mcp 0.4.4 offline-v1 $os $arch"
+  echo "image2-mcp 0.4.5 offline-v1 $os $arch"
   exit 0
 fi
 if [[ "${1:-}" == --verify-mcp && "${IMAGE2_MCP_TEST_VERIFY_MODE:-}" != missing-marker ]]; then
@@ -166,7 +166,7 @@ printf '%s\n%s\n' "$secret" "$gemini_secret" |
 assert_contains "$output" 'Verification: OK'
 source "$root/scripts/setup.sh"
 expected_asset="image2-mcp_$(platform_name)_$(arch_name).tar.gz"
-assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.4/$expected_asset"
+assert_contains "$output" "https://github.com/Schyler0427/image2-mcp/releases/download/v0.4.5/$expected_asset"
 assert_contains "$curl_args" '--connect-timeout'
 assert_contains "$curl_args" '-q -fL --retry 0'
 assert_contains "$curl_args" '10'
@@ -222,7 +222,11 @@ assert_not_contains "$home/.codex/config.toml" '/old/runner'
 assert_not_contains "$home/.codex/config.toml" 'OLD = "value"'
 assert_contains "$home/.codex/config.toml" 'startup_timeout_sec = 20'
 assert_contains "$home/.codex/config.toml" 'tool_timeout_sec = 600'
+assert_contains "$home/.codex/config.toml" '[features]'
+assert_contains "$home/.codex/config.toml" 'image_generation = false'
 [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'image2 root table count is not 1'
+[[ "$(grep -c '^\[features\]$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'features table count is not 1'
+[[ "$(grep -c '^image_generation = false$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'image_generation disable count is not 1'
 [[ "$(file_mode "$repo/.env.local")" == 600 ]] || fail '.env.local mode is not 600'
 [[ -x "$repo/dist/image2-mcp" ]] || fail 'binary is missing or not executable'
 touch "$repo/.image2-mcp-managed"
@@ -244,6 +248,55 @@ assert_contains "$reuse_output" 'OPENAI_IMAGE_API_KEY:'
 assert_not_contains "$reuse_output" 'reusing it'
 ( source "$repo/.env.local"; [[ "$OPENAI_IMAGE_API_KEY" == replacement-image-key && "$GEMINI_IMAGE_API_KEY" == replacement-gemini-key ]] ) || fail 'repeat ignored replacement Key'
 assert_contains "$reuse_output" 'Verification: OK'
+[[ "$(grep -c '^\[features\]$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'repeat duplicated [features] table'
+[[ "$(grep -c '^image_generation = false$' "$home/.codex/config.toml")" -eq 1 ]] || fail 'repeat duplicated image_generation setting'
+
+features_existing_home="$tmp/features-existing-home"
+mkdir -p "$features_existing_home/.codex"
+cat > "$features_existing_home/.codex/config.toml" <<'TOML'
+[features]
+multi_agent = true
+image_generation = true # previously enabled
+
+[mcp_servers.keep]
+command = "/keep/runner"
+image_generation = true
+TOML
+printf '%s\n%s\n' "$secret" "$gemini_secret" |
+  HOME="$features_existing_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
+  "$repo/install.sh" --key-only >"$tmp/features-existing.log" 2>&1 || fail 'install with existing [features] failed'
+assert_contains "$features_existing_home/.codex/config.toml" 'multi_agent = true'
+assert_contains "$features_existing_home/.codex/config.toml" 'image_generation = false'
+[[ "$(grep -c '^\[features\]$' "$features_existing_home/.codex/config.toml")" -eq 1 ]] || fail 'existing [features] table was duplicated'
+[[ "$(grep -c '^image_generation = true$' "$features_existing_home/.codex/config.toml")" -eq 1 ]] || fail 'unrelated table image_generation setting was modified'
+
+features_insert_home="$tmp/features-insert-home"
+mkdir -p "$features_insert_home/.codex"
+cat > "$features_insert_home/.codex/config.toml" <<'TOML'
+[features]
+multi_agent = true
+TOML
+printf '%s\n%s\n' "$secret" "$gemini_secret" |
+  HOME="$features_insert_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
+  "$repo/install.sh" --key-only >"$tmp/features-insert.log" 2>&1 || fail 'install inserting into existing [features] failed'
+assert_contains "$features_insert_home/.codex/config.toml" 'multi_agent = true'
+assert_contains "$features_insert_home/.codex/config.toml" 'image_generation = false'
+[[ "$(grep -c '^\[features\]$' "$features_insert_home/.codex/config.toml")" -eq 1 ]] || fail 'insert into [features] duplicated header'
+
+features_dotted_home="$tmp/features-dotted-home"
+mkdir -p "$features_dotted_home/.codex"
+cat > "$features_dotted_home/.codex/config.toml" <<'TOML'
+features.image_generation = true
+model = "gpt-5"
+TOML
+printf '%s\n%s\n' "$secret" "$gemini_secret" |
+  HOME="$features_dotted_home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
+  IMAGE2_MCP_REPO='Schyler0427/image2-mcp' \
+  "$repo/install.sh" --key-only >"$tmp/features-dotted.log" 2>&1 || fail 'install with dotted features.image_generation failed'
+assert_contains "$features_dotted_home/.codex/config.toml" 'features.image_generation = false'
+assert_not_contains "$features_dotted_home/.codex/config.toml" '[features]'
 
 if printf 'replacement-image-key\nreplacement-gemini-key\n' | HOME="$home" PATH="$fakebin:$PATH" IMAGE2_MCP_TEST_ASSET="$fixture" \
   IMAGE2_MCP_TEST_VERIFY_MODE=missing-marker \

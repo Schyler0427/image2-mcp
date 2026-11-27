@@ -8,7 +8,7 @@ function Assert-Contains([string]$Path, [string]$Expected, [string]$Message) {
   Assert-True ([IO.File]::ReadAllText($Path).Contains($Expected)) $Message
 }
 
-function New-TestOfflineBinary([string]$Path, [string]$Version = "0.4.4") {
+function New-TestOfflineBinary([string]$Path, [string]$Version = "0.4.5") {
   $NativeArchitecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
   $Arch = switch ($NativeArchitecture.ToUpperInvariant()) { "ARM64" { "arm64" }; "AMD64" { "amd64" }; "X86" { "386" }; default { throw "unsupported fixture architecture" } }
   $TypeName = "OfflineBinaryFixture" + [Guid]::NewGuid().ToString("N")
@@ -65,7 +65,7 @@ foreach ($Name in @(
 
 function New-SourceZip([string]$Name, [string]$Version, [string]$Mode = "ok") {
   $SourceParent = Join-Path $TempRoot ("source-" + $Name)
-  $Tree = Join-Path $SourceParent "image2-mcp-0.4.4"
+  $Tree = Join-Path $SourceParent "image2-mcp-0.4.5"
   $Archive = Join-Path $TempRoot ($Name + ".zip")
   New-Item -ItemType Directory -Force -Path (Join-Path $Tree "scripts") | Out-Null
   [IO.File]::WriteAllText((Join-Path $Tree "go.mod"), "module fixture`n", (New-Object Text.UTF8Encoding($false)))
@@ -136,12 +136,12 @@ function New-UnsafeCaseZip {
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   try {
     foreach ($Name in @(
-      "image2-mcp-0.4.4/install.sh",
-      "image2-mcp-0.4.4/install.ps1",
-      "image2-mcp-0.4.4/go.mod",
-      "image2-mcp-0.4.4/scripts/run-image2-mcp.ps1",
-      "image2-mcp-0.4.4/Case.txt",
-      "image2-mcp-0.4.4/case.txt"
+      "image2-mcp-0.4.5/install.sh",
+      "image2-mcp-0.4.5/install.ps1",
+      "image2-mcp-0.4.5/go.mod",
+      "image2-mcp-0.4.5/scripts/run-image2-mcp.ps1",
+      "image2-mcp-0.4.5/Case.txt",
+      "image2-mcp-0.4.5/case.txt"
     )) {
       Add-TestZipEntry $Zip $Name
     }
@@ -158,15 +158,15 @@ function New-UnsafePrefixZip([string]$Name, [switch]$ChildFirst) {
   $Stream = [IO.File]::Open($Archive, [IO.FileMode]::Create)
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   $Required = @(
-    "image2-mcp-0.4.4/install.sh",
-    "image2-mcp-0.4.4/install.ps1",
-    "image2-mcp-0.4.4/go.mod",
-    "image2-mcp-0.4.4/scripts/run-image2-mcp.ps1"
+    "image2-mcp-0.4.5/install.sh",
+    "image2-mcp-0.4.5/install.ps1",
+    "image2-mcp-0.4.5/go.mod",
+    "image2-mcp-0.4.5/scripts/run-image2-mcp.ps1"
   )
   $Collision = if ($ChildFirst) {
-    @("image2-mcp-0.4.4/prefix/child.txt", "image2-mcp-0.4.4/prefix")
+    @("image2-mcp-0.4.5/prefix/child.txt", "image2-mcp-0.4.5/prefix")
   } else {
-    @("image2-mcp-0.4.4/prefix", "image2-mcp-0.4.4/prefix/child.txt")
+    @("image2-mcp-0.4.5/prefix", "image2-mcp-0.4.5/prefix/child.txt")
   }
   try {
     foreach ($EntryName in @($Required + $Collision)) {
@@ -186,14 +186,14 @@ function New-UnsafeAttributeZip([string]$Name, [int]$ExternalAttributes) {
   $Zip = New-Object IO.Compression.ZipArchive($Stream, [IO.Compression.ZipArchiveMode]::Create)
   try {
     foreach ($EntryName in @(
-      "image2-mcp-0.4.4/install.sh",
-      "image2-mcp-0.4.4/install.ps1",
-      "image2-mcp-0.4.4/go.mod",
-      "image2-mcp-0.4.4/scripts/run-image2-mcp.ps1"
+      "image2-mcp-0.4.5/install.sh",
+      "image2-mcp-0.4.5/install.ps1",
+      "image2-mcp-0.4.5/go.mod",
+      "image2-mcp-0.4.5/scripts/run-image2-mcp.ps1"
     )) {
       Add-TestZipEntry $Zip $EntryName
     }
-    Add-TestZipEntry $Zip "image2-mcp-0.4.4/unsafe-link" $ExternalAttributes
+    Add-TestZipEntry $Zip "image2-mcp-0.4.5/unsafe-link" $ExternalAttributes
   } finally {
     $Zip.Dispose()
     $Stream.Dispose()
@@ -316,7 +316,7 @@ try {
   New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
   [IO.File]::WriteAllText($ReleaseJson, @'
 {
-  "tag_name": "v0.4.4",
+  "tag_name": "v0.4.5",
   "draft": false,
   "prerelease": false,
   "assets": [
@@ -348,7 +348,7 @@ function Invoke-WebRequest {
   if (($Protocols -band [Net.SecurityProtocolType]::Tls) -eq 0) {
     throw "fixture source download did not preserve TLS"
   }
-  if ($Uri -ne "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.4.zip") {
+  if ($Uri -ne "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.5.zip") {
     throw "unexpected fixture URL: $Uri"
   }
   if (-not [string]::IsNullOrEmpty($env:BOOTSTRAP_FIXTURE_SOURCE_DOWNLOAD_MARKER)) {
@@ -372,7 +372,7 @@ function Remove-Item {
 . $env:BOOTSTRAP_FIXTURE_HELPER
 # Mock only request creation; exercise the real metadata timeout/error handling.
 function New-AgentBootstrapMetadataRequest([string]$Uri) {
-  if ($Uri -cne "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4") {
+  if ($Uri -cne "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.5") {
     throw "unexpected fixture URL: $Uri"
   }
   $Request = [PSCustomObject]@{
@@ -474,12 +474,12 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   $UnsafePrefixLast = New-UnsafePrefixZip "unsafe-prefix-last" -ChildFirst
   $UnsafeSymlink = New-UnsafeAttributeZip "unsafe-symlink" -1577123840
   $UnsafeReparse = New-UnsafeAttributeZip "unsafe-reparse" ([int][IO.FileAttributes]::ReparsePoint)
-  Assert-ZipContains $Fail "image2-mcp-0.4.4/.fixture-install-fail" "failure fixture marker was omitted from ZIP"
-  Assert-ZipContains $ConfigPathFail "image2-mcp-0.4.4/.fixture-config-path-fail" "config failure fixture marker was omitted from ZIP"
+  Assert-ZipContains $Fail "image2-mcp-0.4.5/.fixture-install-fail" "failure fixture marker was omitted from ZIP"
+  Assert-ZipContains $ConfigPathFail "image2-mcp-0.4.5/.fixture-config-path-fail" "config failure fixture marker was omitted from ZIP"
 
   # Local payloads keep the bundled binary and bypass all network/TLS setup.
   $OfflinePayload = Join-Path $TempRoot "offline payload"
-  Copy-Item -LiteralPath (Join-Path $TempRoot "source-v1\image2-mcp-0.4.4") -Destination $OfflinePayload -Recurse
+  Copy-Item -LiteralPath (Join-Path $TempRoot "source-v1\image2-mcp-0.4.5") -Destination $OfflinePayload -Recurse
   New-Item -ItemType Directory -Path (Join-Path $OfflinePayload "dist") | Out-Null
   New-TestOfflineBinary (Join-Path $OfflinePayload "dist\image2-mcp.exe")
   $OfflineBinaryHash = (Get-FileHash -LiteralPath (Join-Path $OfflinePayload "dist\image2-mcp.exe") -Algorithm SHA256).Hash
@@ -493,7 +493,7 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
   }
   function Write-TestOfflineManifest([string]$Package) {
     $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
-    $Lines = @("IMAGE2_MCP_OFFLINE 1", "version 0.4.4", "platform windows $Arch")
+    $Lines = @("IMAGE2_MCP_OFFLINE 1", "version 0.4.5", "platform windows $Arch")
     foreach ($Relative in $OfflinePaths) {
       $File = Get-Item -LiteralPath (Join-Path $Package $Relative)
       $Hash = (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -532,7 +532,7 @@ call "%BOOTSTRAP_FIXTURE_REAL_GIT%" %*
     switch ($InvalidManifest) {
       "changed-file" { [IO.File]::AppendAllText((Join-Path $BadPayload "scripts\run-image2-mcp.ps1"), "corrupt") }
       "wrong-platform" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("platform windows", "platform linux"))) }
-      "wrong-version" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("version 0.4.4", "version 999.0.0"))) }
+      "wrong-version" { [IO.File]::WriteAllText($Manifest, ([IO.File]::ReadAllText($Manifest).Replace("version 0.4.5", "version 999.0.0"))) }
       "duplicate-record" { [IO.File]::AppendAllText($Manifest, "file duplicate`n") }
       "missing-manifest" { Remove-Item -LiteralPath $Manifest }
       "extra-file" { [IO.File]::WriteAllText((Join-Path $BadPayload ".env"), "unexpected") }
@@ -613,8 +613,8 @@ Write-Output 'offline wrapper arguments OK'
   Assert-True ($First.Output.Contains("Verifying local installation...")) "verification progress marker missing"
   $ApiCalls = @([IO.File]::ReadAllLines($ApiOnlyNetwork))
   Assert-True ($ApiCalls.Count -eq 2) "expected one metadata request and one source download"
-  Assert-True ($ApiCalls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4") "Release API request was not single, bounded, and without redirects"
-  Assert-True ($ApiCalls[1] -ceq "WEB|60|https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.4.zip") "source timeout is not bounded"
+  Assert-True ($ApiCalls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.5") "Release API request was not single, bounded, and without redirects"
+  Assert-True ($ApiCalls[1] -ceq "WEB|60|https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.5.zip") "source timeout is not bounded"
   Assert-True ($First.Output.Contains("OPENAI_IMAGE_API_KEY:")) "bootstrap did not expose the key prompt"
   Assert-True (-not $First.Output.Contains($SecretText)) "first install leaked key"
   $CleanTarget = Join-Path $CleanHome "AppData\Local\image2-mcp"
@@ -640,7 +640,7 @@ Write-Output 'offline wrapper arguments OK'
       Assert-True ($DiagnosticOutput.Contains($Diagnostic)) "$Name failed for the wrong reason: $($Result.Output)"
       $Calls = @([IO.File]::ReadAllLines($Log))
       Assert-True ($Calls.Count -eq 1) "$Name retried, fell back, or downloaded source"
-      Assert-True ($Calls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4") "$Name did not use the bounded Release API"
+      Assert-True ($Calls[0] -ceq "API|5000|15000|False|https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.5") "$Name did not use the bounded Release API"
       Assert-True (-not $Result.Output.Contains("OPENAI_IMAGE_API_KEY:")) "$Name reached key input"
       Assert-True (-not $Result.Output.Contains($SecretText)) "$Name leaked key"
       Assert-True (@(Get-PreviousBackups (Split-Path -Parent $Target)).Count -eq 0) "$Name moved existing target"
@@ -668,7 +668,7 @@ Write-Output 'offline wrapper arguments OK'
     Assert-ReleaseRefusal $Field $InvalidRelease "200" ("must not be a " + $Field)
   }
   $InvalidRelease = Join-Path $TempRoot "release-invalid.json"
-  [IO.File]::WriteAllText($InvalidRelease, $ValidRelease.Replace('"tag_name": "v0.4.4"', '"tag_name": "wrong-tag"'))
+  [IO.File]::WriteAllText($InvalidRelease, $ValidRelease.Replace('"tag_name": "v0.4.5"', '"tag_name": "wrong-tag"'))
   Assert-ReleaseRefusal "wrong-tag" $InvalidRelease "200" "wrong tag"
   [IO.File]::WriteAllText($InvalidRelease, "{invalid JSON")
   Assert-ReleaseRefusal "malformed" $InvalidRelease "200" "Release gate failed"

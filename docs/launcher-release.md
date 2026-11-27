@@ -5,7 +5,7 @@
 
 本地 Windows 0.4.4 修复安装暂存目录切换时的短暂拒绝访问：目录移动遇到 Win32 错误 5（拒绝访问）、32（共享冲突）或 33（锁冲突）时，最多尝试 6 次，每次间隔 1 秒。正式目录切换、旧版备份和失败回滚使用同一个重试入口；永久失败保留原始异常，其他错误不重试。模型、工具、密钥输入方式和原有事务顺序保持不变。`tests/test-bootstrap-directory-move.ps1` 覆盖重试、失败上限、原始异常、真实目录移动及事务入口；Windows PowerShell 5.1 CI 会运行此测试。PowerShell 7/macOS 的本地测试不能替代 Windows GUI 实机验收。
 
-本地 0.4.3 构建新增 Image2.6 Sunburst／Flare 和动态 GIF 文生图，v0.4.4 在线版同步提供这些功能。普通 PNG 仍默认 Image2 2.0。“用2.6生图”选择 Sunburst，“用2.6快速版生图”选择 Flare；“生成动图”“做个GIF”“循环动图”在没有明确指定模型时自动选择 Flare 并设置 `output_format=gif`。明确指定的模型不因不支持 GIF 或上游错误而改换。GIF 不支持参考图编辑，不能丢弃参考图改走文生图；生成可选 `quality`，GIF 默认自动尺寸、9 帧、每帧 200 ms，输出保留原始 `.gif` 字节并报告实际尺寸、帧数及总时长。固定在线 Key-only 路径使用 v0.4.4；更新服务需维护者另外部署。
+本地 0.4.3 构建新增 Image2.6 Sunburst／Flare 和动态 GIF 文生图，v0.4.5 在线版同步提供这些功能，并在安装时自动写入 `[features]` 的 `image_generation = false` 避免新版 Codex 内置生图抢占路由。普通 PNG 仍默认 Image2 2.0。“用2.6生图”选择 Sunburst，“用2.6快速版生图”选择 Flare；“生成动图”“做个GIF”“循环动图”在没有明确指定模型时自动选择 Flare 并设置 `output_format=gif`。明确指定的模型不因不支持 GIF 或上游错误而改换。GIF 不支持参考图编辑，不能丢弃参考图改走文生图；生成可选 `quality`，GIF 默认自动尺寸、9 帧、每帧 200 ms，输出保留原始 `.gif` 字节并报告实际尺寸、帧数及总时长。固定在线 Key-only 路径使用 v0.4.5；更新服务需维护者另外部署。
 
 ## 构建与校验
 

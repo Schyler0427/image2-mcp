@@ -1,6 +1,6 @@
 # Image2 MCP Agent Installation
 
-0.4.3 本地 GUI／离线包支持只配置一把密钥，并提供 Image2.6 与动态 GIF 生图；v0.4.4 在线版本同时提供这些能力。这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。只配置一把密钥或使用 Image2.6／GIF 时，使用 v0.4.4 在线版或完整离线包。
+0.4.3 本地 GUI／离线包支持只配置一把密钥，并提供 Image2.6 与动态 GIF 生图；v0.4.5 在线版本同时提供这些能力。这包括在线 Agent 安装，以及从源码目录运行 `./install.sh --key-only` 或 `.\install.ps1 -KeyOnly`。只配置一把密钥或使用 Image2.6／GIF 时，使用 v0.4.5 在线版或完整离线包。
 
 ## Offline package path
 
@@ -36,14 +36,14 @@ probe alternate GitHub pages or mirrors, reinstall dependencies, change the
 network configuration, or launch a second installer automatically. Continue
 only after the customer asks to retry or the reported cause has been resolved.
 
-## Fixed online v0.4.4 contract
+## Fixed online v0.4.5 contract
 
 - Repository: `https://github.com/Schyler0427/image2-mcp`
 - Repository identity: `Schyler0427/image2-mcp`
 - Base URL: `https://api.schyler.top`
-- Release: public `v0.4.4`
+- Release: public `v0.4.5`
 - Release gate:
-  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4`
+  `https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.5`
 - macOS/Linux target: `$HOME/.local/share/image2-mcp`
 - Windows target: `%LOCALAPPDATA%\image2-mcp`
 - Managed marker: `.image2-mcp-managed`
@@ -53,7 +53,7 @@ only after the customer asks to retry or the reported cause has been resolved.
 - Legacy `generate_image2` and `edit_image2` stay Image2-only; Image 2.5 uses
   `version: "2.5"`. Do not switch providers after an error or repeat image calls
   automatically. A missing selected provider key is an error.
-- 0.4.3 本地 GUI／离线包：客户只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把。The v0.4.4 online Key-only path has the same provider-key behavior. The fixed gateway is
+- 0.4.3 本地 GUI／离线包：客户只需提供 Image2 或 Gemini 专用 API Key，至少配置一把，也可同时配置两把。The v0.4.5 online Key-only path has the same provider-key behavior. The fixed gateway is
   `https://api.schyler.top`; model selection follows natural language.
 - 永远不要询问客户模型 ID、Base URL 或 endpoint。
 
@@ -142,7 +142,7 @@ Windows. Do not invoke either installer separately.
 The repository-owned helper is the only implementation of the bootstrap
 transaction. It owns all of these requirements:
 
-- enforce the fixed public `v0.4.4` gate and all six exact assets;
+- enforce the fixed public `v0.4.5` gate and all six exact assets;
 - make exactly one bounded Release API request; fail on rate limits or network
   errors without probing the Release HTML or expanded-assets pages;
 - enforce the fixed platform and architecture, fixed target, exact Git origin

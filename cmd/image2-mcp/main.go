@@ -14,7 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverVersion = "0.4.4"
+const serverVersion = "0.4.5"
 const binaryIdentity = "image2-mcp " + serverVersion + " offline-v1"
 
 type generateParams struct {

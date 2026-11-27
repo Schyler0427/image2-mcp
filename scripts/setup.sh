@@ -107,7 +107,7 @@ download_prebuilt() {
   }
   asset="image2-mcp_${os}_${arch}.tar.gz"
   if [[ "$key_only" -eq 1 ]]; then
-    url="https://github.com/${repo}/releases/download/v0.4.4/${asset}"
+    url="https://github.com/${repo}/releases/download/v0.4.5/${asset}"
   else
     url="https://github.com/${repo}/releases/latest/download/${asset}"
   fi
@@ -287,6 +287,74 @@ remove_image2_config_namespace() {
     {
       if (table_header($0) || array_table_header($0)) skip = image2_header($0)
       if (!skip) print
+    }
+  ' "$input" >"$output"
+}
+
+disable_codex_builtin_image_generation() {
+  local input="$1" output="$2"
+  awk '
+    function is_features_header(line) {
+      return line ~ /^[[:space:]]*\[[[:space:]]*features[[:space:]]*\][[:space:]]*(#.*)?$/
+    }
+    function is_table_header(line) {
+      return line ~ /^[[:space:]]*\[[^][]+\][[:space:]]*(#.*)?$/ || line ~ /^[[:space:]]*\[\[[^][]+\]\][[:space:]]*(#.*)?$/
+    }
+    BEGIN {
+      in_root = 1
+      in_features = 0
+      has_features_table = 0
+      features_header_idx = 0
+      has_root_features_dotted = 0
+      last_root_features_idx = 0
+      handled = 0
+    }
+    {
+      lines[NR] = $0
+      if (is_table_header($0)) {
+        in_root = 0
+        if (is_features_header($0)) {
+          in_features = 1
+          if (!has_features_table) {
+            has_features_table = 1
+            features_header_idx = NR
+          }
+        } else {
+          in_features = 0
+        }
+        next
+      }
+      if (in_root) {
+        if ($0 ~ /^[[:space:]]*features[[:space:]]*\.[[:space:]]*image_generation[[:space:]]*=/) {
+          lines[NR] = "features.image_generation = false"
+          handled = 1
+        } else if ($0 ~ /^[[:space:]]*features[[:space:]]*\.[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*=/) {
+          has_root_features_dotted = 1
+          last_root_features_idx = NR
+        }
+      } else if (in_features) {
+        if ($0 ~ /^[[:space:]]*image_generation[[:space:]]*=/) {
+          lines[NR] = "image_generation = false"
+          handled = 1
+        }
+      }
+    }
+    END {
+      for (i = 1; i <= NR; i++) {
+        print lines[i]
+        if (!handled && has_features_table && i == features_header_idx) {
+          print "image_generation = false"
+          handled = 1
+        } else if (!handled && !has_features_table && has_root_features_dotted && i == last_root_features_idx) {
+          print "features.image_generation = false"
+          handled = 1
+        }
+      }
+      if (!handled) {
+        if (NR > 0) print ""
+        print "[features]"
+        print "image_generation = false"
+      }
     }
   ' "$input" >"$output"
 }
@@ -501,15 +569,18 @@ toml_basic_string() {
 }
 
 replace_image2_config() {
-  local config_file="$1" tmp runner root_count
+  local config_file="$1" tmp_clean tmp runner root_count
   validate_codex_config_file "$config_file" || {
     return 1
   }
+  tmp_clean="$(mktemp "${config_file}.clean.XXXXXX")"
   tmp="$(mktemp "${config_file}.tmp.XXXXXX")"
-  if ! remove_image2_config_namespace "$config_file" "$tmp"; then
-    rm -f "$tmp"
+  if ! remove_image2_config_namespace "$config_file" "$tmp_clean" ||
+     ! disable_codex_builtin_image_generation "$tmp_clean" "$tmp"; then
+    rm -f "$tmp_clean" "$tmp"
     return 1
   fi
+  rm -f "$tmp_clean"
   runner="$(toml_basic_string "${repo_dir}/scripts/run-image2-mcp.sh")"
   {
     printf '\n[mcp_servers.image2]\n'
@@ -520,7 +591,7 @@ replace_image2_config() {
   root_count="$(grep -c '^\[mcp_servers\.image2\]$' "$tmp" || true)"
   # The previous Image2 namespace was removed above; the generated block below
   # is static and never contains keys. Other MCP providers may have their own.
-  if [[ "$root_count" -ne 1 ]]; then
+  if [[ "$root_count" -ne 1 ]] || ! grep -Eq '^[[:space:]]*(features[[:space:]]*\.[[:space:]]*)?image_generation[[:space:]]*=[[:space:]]*false[[:space:]]*$' "$tmp"; then
     echo "error: generated Codex config verification failed" >&2
     rm -f "$tmp"
     return 1
@@ -581,7 +652,8 @@ verify_key_only_install() {
     echo 'error: environment verification failed' >&2
     return 1
   }
-  [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$config" || true)" -eq 1 ]] || {
+  [[ "$(grep -c '^\[mcp_servers\.image2\]$' "$config" || true)" -eq 1 ]] &&
+    grep -Eq '^[[:space:]]*(features[[:space:]]*\.[[:space:]]*)?image_generation[[:space:]]*=[[:space:]]*false[[:space:]]*$' "$config" || {
     echo 'error: Codex config verification failed' >&2
     return 1
   }

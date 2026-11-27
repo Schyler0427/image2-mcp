@@ -3,9 +3,9 @@ set -euo pipefail
 
 readonly_repo_url='https://github.com/Schyler0427/image2-mcp.git'
 readonly_repo_slug='Schyler0427/image2-mcp'
-readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4'
-readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.4.tar.gz'
-readonly_source_root='image2-mcp-0.4.4'
+readonly_release_api='https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.5'
+readonly_source_url='https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.5.tar.gz'
+readonly_source_root='image2-mcp-0.4.5'
 readonly_base_url='https://api.schyler.top'
 
 txn=''
@@ -117,16 +117,16 @@ expected = {
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     release = json.load(handle)
 assets = {item.get("name") for item in release.get("assets", []) if isinstance(item, dict)}
-if release.get("tag_name") != "v0.4.4" or release.get("draft") is not False or release.get("prerelease") is not False:
+if release.get("tag_name") != "v0.4.5" or release.get("draft") is not False or release.get("prerelease") is not False:
     raise SystemExit(1)
 if not expected.issubset(assets):
-    raise SystemExit("public v0.4.4 Release is missing required asset: " + ", ".join(sorted(expected - assets)))
+    raise SystemExit("public v0.4.5 Release is missing required asset: " + ", ".join(sorted(expected - assets)))
 PY
     return
   fi
   if command -v jq >/dev/null 2>&1; then
     jq -e '
-      .tag_name == "v0.4.4" and
+      .tag_name == "v0.4.5" and
       .draft == false and
       .prerelease == false and
       ([
@@ -138,7 +138,7 @@ PY
         "image2-mcp_windows_amd64.zip"
       ] - [.assets[].name] |
         if length == 0 then true
-        else error("public v0.4.4 Release is missing required asset: " + join(", "))
+        else error("public v0.4.5 Release is missing required asset: " + join(", "))
         end)
     ' "$json_file" >/dev/null
     return
@@ -156,9 +156,9 @@ PY
     return 1
   }
   # This function runs in a conditional gate, where Bash disables errexit.
-  grep -Fq '"tag_name":"v0.4.4"' "$compact" || { fail 'public Release tag is not v0.4.4'; return 1; }
-  grep -Fq '"draft":false' "$compact" || { fail 'public v0.4.4 Release is a draft'; return 1; }
-  grep -Fq '"prerelease":false' "$compact" || { fail 'public v0.4.4 Release is a prerelease'; return 1; }
+  grep -Fq '"tag_name":"v0.4.5"' "$compact" || { fail 'public Release tag is not v0.4.5'; return 1; }
+  grep -Fq '"draft":false' "$compact" || { fail 'public v0.4.5 Release is a draft'; return 1; }
+  grep -Fq '"prerelease":false' "$compact" || { fail 'public v0.4.5 Release is a prerelease'; return 1; }
   for asset in \
     'image2-mcp_darwin_arm64.tar.gz' \
     'image2-mcp_darwin_amd64.tar.gz' \
@@ -167,7 +167,7 @@ PY
     'image2-mcp_windows_arm64.zip' \
     'image2-mcp_windows_amd64.zip'; do
     grep -Fq "\"name\":\"$asset\"" "$compact" || {
-      fail "public v0.4.4 Release is missing required asset: $asset"
+      fail "public v0.4.5 Release is missing required asset: $asset"
       return 1
     }
   done
@@ -364,7 +364,7 @@ validate_offline_manifest() {
   [[ "$(wc -c < "$manifest")" -le 16384 ]] || fail 'offline package manifest is too large'
   {
     IFS= read -r line && [[ "$line" == 'IMAGE2_MCP_OFFLINE 1' ]] || fail 'unsupported offline package manifest'
-    IFS= read -r line && [[ "$line" == 'version 0.4.4' ]] || fail 'offline package version mismatch'
+    IFS= read -r line && [[ "$line" == 'version 0.4.5' ]] || fail 'offline package version mismatch'
     IFS= read -r line && [[ "$line" == "platform $(platform_name) $(arch_name)" ]] || fail 'offline package platform mismatch'
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ "$index" -lt "${#expected[@]}" ]] || fail 'offline package has extra manifest records'
@@ -515,7 +515,7 @@ main() {
   if [[ "$offline" -eq 0 ]]; then
     printf 'Checking public Release...\n'
     validate_release_gate ||
-      fail 'public v0.4.4 Release gate failed; GitHub API must confirm the published tag and all six required assets'
+      fail 'public v0.4.5 Release gate failed; GitHub API must confirm the published tag and all six required assets'
   fi
 
   if [[ -e "$target" || -L "$target" ]]; then

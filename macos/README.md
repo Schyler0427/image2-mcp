@@ -10,7 +10,7 @@ Each app launch starts with empty password fields. Installation accepts an Image
 
 All launcher buttons and messages are Chinese, including “安装 / 更新密钥”, “检查更新” and “取消”. The default remains Image2 even when only Gemini is configured. Explicit Gemini, banana or 香蕉 requests select Gemini 3.1 Flash Image (`gemini-3.1-flash-image`); a missing selected provider key reports an error without automatically switching providers.
 
-本地 0.4.3 的普通 PNG 仍默认 Image2 2.0。“用2.6生图”选择 Image2.6 Sunburst，“用2.6快速版生图”选择 Image2.6 Flare。“生成动图”“做个GIF”“循环动图”自动选择 Flare 生成 GIF，除非已明确指定模型；指定模型不因不支持或上游错误而改换。GIF 只支持文生图，不支持参考图编辑成动图。默认自动尺寸、9 帧、每帧 200 ms；文件保留动画帧并报告实际尺寸、帧数与总时长。在线 Key-only 路径使用 v0.4.4，支持这些功能。
+本地 0.4.3 的普通 PNG 仍默认 Image2 2.0。“用2.6生图”选择 Image2.6 Sunburst，“用2.6快速版生图”选择 Image2.6 Flare。“生成动图”“做个GIF”“循环动图”自动选择 Flare 生成 GIF，除非已明确指定模型；指定模型不因不支持或上游错误而改换。GIF 只支持文生图，不支持参考图编辑成动图。默认自动尺寸、9 帧、每帧 200 ms；文件保留动画帧并报告实际尺寸、帧数与总时长。在线 Key-only 路径使用 v0.4.5，支持这些功能。
 
 安装成功后重启 Codex，并打开新对话。安装和本地连接验证不会调用收费生图 API。
 

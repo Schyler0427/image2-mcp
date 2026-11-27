@@ -71,14 +71,14 @@ function Assert-AgentBootstrapPlainDirectory([string]$Path, [string]$Description
 }
 
 function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
-  if ($null -eq $Release -or $Release.tag_name -cne "v0.4.4") {
+  if ($null -eq $Release -or $Release.tag_name -cne "v0.4.5") {
     throw "public Release gate returned the wrong tag"
   }
   if ($Release.draft -isnot [bool] -or $Release.draft) {
-    throw "public v0.4.4 Release must not be a draft"
+    throw "public v0.4.5 Release must not be a draft"
   }
   if ($Release.prerelease -isnot [bool] -or $Release.prerelease) {
-    throw "public v0.4.4 Release must not be a prerelease"
+    throw "public v0.4.5 Release must not be a prerelease"
   }
 
   $AssetNames = @()
@@ -89,7 +89,7 @@ function Assert-AgentBootstrapRelease($Release, [string[]]$RequiredAssets) {
   }
   foreach ($Name in $RequiredAssets) {
     if (-not ($AssetNames -ccontains $Name)) {
-      throw "public v0.4.4 Release is missing required asset: $Name"
+      throw "public v0.4.5 Release is missing required asset: $Name"
     }
   }
 }
@@ -427,7 +427,7 @@ function Assert-AgentBootstrapOfflinePackage([string]$Package) {
     default { throw "unsupported offline package architecture" }
   }
   if ($Lines.Count -ne 15 -or $Lines[0] -cne "IMAGE2_MCP_OFFLINE 1" -or
-      $Lines[1] -cne "version 0.4.4" -or $Lines[2] -cne "platform windows $Arch") {
+      $Lines[1] -cne "version 0.4.5" -or $Lines[2] -cne "platform windows $Arch") {
     throw "offline package version, platform, or manifest format mismatch"
   }
   [long]$Total = 0
@@ -650,9 +650,9 @@ function Invoke-AgentBootstrap {
   $ErrorActionPreference = "Stop"
   $RepositoryUrl = "https://github.com/Schyler0427/image2-mcp.git"
   $RepositorySlug = "Schyler0427/image2-mcp"
-  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.4"
-  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.4.zip"
-  $SourceRoot = "image2-mcp-0.4.4"
+  $ReleaseApi = "https://api.github.com/repos/Schyler0427/image2-mcp/releases/tags/v0.4.5"
+  $SourceUrl = "https://github.com/Schyler0427/image2-mcp/archive/refs/tags/v0.4.5.zip"
+  $SourceRoot = "image2-mcp-0.4.5"
   $BaseUrl = "https://api.schyler.top"
   $RequiredAssets = @(
     "image2-mcp_darwin_arm64.tar.gz",
@@ -704,7 +704,7 @@ function Invoke-AgentBootstrap {
         $Release = Invoke-AgentBootstrapMetadata $ReleaseApi
         Assert-AgentBootstrapRelease $Release $RequiredAssets
       } catch {
-        throw "public v0.4.4 Release gate failed: $($_.Exception.Message)"
+        throw "public v0.4.5 Release gate failed: $($_.Exception.Message)"
       }
     }
 
